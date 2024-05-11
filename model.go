@@ -4,12 +4,13 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/ipfs/go-cid"
 	"gorm.io/gorm"
-	"time"
 )
 
 type RequestStatus string
@@ -33,12 +34,12 @@ type Request struct {
 	Messages      []*Message      `json:"messages"`
 	Error         string          `json:"error"`
 	Took          time.Duration   `json:"took"`
-	Confirmed     *time.Time      `json:"confirmed"`
+	ConfirmedAt   *time.Time      `json:"confirmed_at"`
 	DryRun        bool            `json:"dry_run"`
 	DryRunResult  string          `json:"dry_run_result"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt  `gorm:"index" json:"deleted_at"`
+	DeletedAt     gorm.DeletedAt  `gorm:"index" json:"-"`
 }
 
 // Message represents a message in the system.

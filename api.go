@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/filecoin-project/go-address"
@@ -20,6 +21,7 @@ func NewRouter(srv *Service) http.Handler {
 	impl := newImplAPI(srv)
 	r := mux.NewRouter()
 	r.HandleFunc("/create", impl.create).Methods("POST")
+	r.HandleFunc("/get/{id:[0-9]+}", impl.get).Methods("GET")
 	return r
 }
 
@@ -66,6 +68,22 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 	}
 	req, err := a.srv.createRequest(r.Context(), args.Miner, args.From, args.To,
 		args.Extension, args.NewExpiration, args.DryRun)
+	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	warpResponse(w, http.StatusOK, req, nil)
+}
+
+func (a *implAPI) get(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("invalid id: %s", vars["id"]))
+		return
+	}
+
+	req, err := a.srv.getRequest(r.Context(), uint(id))
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return

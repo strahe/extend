@@ -148,6 +148,17 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 	return request, s.db.Create(request).Error
 }
 
+func (s *Service) getRequest(ctx context.Context, id uint) (*Request, error) {
+	var request Request
+	if err := s.db.First(&request, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("request not found")
+		}
+		return nil, fmt.Errorf("failed to get request: %w", err)
+	}
+	return &request, nil
+}
+
 func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi.ChainEpoch,
 	extension *abi.ChainEpoch, newExpiration *abi.ChainEpoch, tolerance abi.ChainEpoch, dryRun bool) ([]*Message, []*PseudoExtendSectorExpirationParams, error) {
 
