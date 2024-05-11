@@ -17,9 +17,11 @@ const (
 	tolerance = 20160 // 7 days
 )
 
-func NewRouter(srv *Service) http.Handler {
-	impl := newImplAPI(srv)
+func NewRouter(srv *Service, secret []byte) http.Handler {
 	r := mux.NewRouter()
+	r.Use(authMiddleware(secret))
+
+	impl := newImplAPI(srv)
 	r.HandleFunc("/create", impl.create).Methods("POST")
 	r.HandleFunc("/get/{id:[0-9]+}", impl.get).Methods("GET")
 	return r
