@@ -46,12 +46,12 @@ type Request struct {
 // It contains a unique identifier (MsgCid) and a list of Extensions.
 type Message struct {
 	ID         uint           `gorm:"primarykey" json:"id"`
-	MsgCid     CID            `gorm:"index" json:"msg_cid"` // The unique identifier of the message
-	Extensions []Extension2   `json:"extensions"`           // The list of extensions associated with the message
+	Cid        CID            `gorm:"index" json:"cid"` // The unique identifier of the message
+	Extensions []Extension2   `json:"extensions"`       // The list of extensions associated with the message
 	RequestID  uint           `json:"request_id"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // Extension2 represents an extension in the system.
@@ -66,7 +66,7 @@ type Extension2 struct {
 	MessageID         uint           `json:"message_id"`          // The ID of the message associated with the extension
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
-	DeletedAt         gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // NewExtension2FromParams creates a list of Extension2 from the provided parameters.

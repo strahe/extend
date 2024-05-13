@@ -87,6 +87,11 @@ var runCmd = &cli.Command{
 	Usage: "run the extend service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
+			Name:  "listen",
+			Value: "127.0.0.1:8000",
+			Usage: "specify the address to listen on",
+		},
+		&cli.StringFlag{
 			Name:  "db",
 			Value: "extend.db",
 			Usage: "specify the database file to use",
@@ -130,7 +135,7 @@ var runCmd = &cli.Command{
 
 		srv := &http.Server{
 			Handler: NewRouter(NewService(ctx, db, fullApi, shutdownChan), secret),
-			Addr:    "127.0.0.1:8000",
+			Addr:    cctx.String("listen"),
 			// Good practice: enforce timeouts for servers you create!
 			WriteTimeout: 15 * time.Second,
 			ReadTimeout:  15 * time.Second,

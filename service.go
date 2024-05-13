@@ -427,7 +427,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		}
 
 		msg := &Message{
-			MsgCid:     CID{smsg.Cid()},
+			Cid:        CID{smsg.Cid()},
 			Extensions: exts,
 		}
 		s.db.Create(msg)
