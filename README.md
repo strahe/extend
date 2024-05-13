@@ -73,13 +73,13 @@ Authorization:  Bearer  <token>
 |----------------|-------------------------------------------------------|-------------------------------------------|  
 | id             | 11                                                    | 请求ID                                      |  
 | extension      | 21000                                                 | 续期追加的高度，创建时指定的参数                          |  
-| from           | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始高度，创建时指定的参数                  |  
-| to             | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束高度，创建时指定的参数                  |  
+| from           | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始时间，创建时指定的参数                  |  
+| to             | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                  |  
 | new_expiration | null                                                  | 新的过期时间，创建时指定的参数                           |  
 | messages       | null                                                  | 续期上链的消息，array                             |  
 | miner          | "t017387"                                             | 矿工                                        |  
 | status         | "failed"                                              | 状态，`created`,`pending`,`failed`,`success` |  
-| took           | 32524714461                                           | 续期执行耗时                                    |  
+| took           | 526.841994321                                         | 续期执行耗时,单位s                                |  
 | confirmed_at   | null                                                  | 消息上链的确认时间                                 |  
 | dry_run        | true                                                  | 是否为测试运行                                   |  
 | dry_run_result | ""                                                    | 测试运行结果                                    |  
@@ -104,7 +104,7 @@ Authorization:  Bearer  <token>
 	 "new_expiration": null, 
 	 "status": "created", 
 	 "to": "2024-05-13T07:34:47Z", 
-	 "took": 32524714461, 
+	 "took": 526.841994321, 
 	 "updated_at": "2024-05-11T13:40:16.237069667+08:00"
 	 }
 }  
@@ -115,23 +115,25 @@ Authorization:  Bearer  <token>
 
 #### 返回示例
  ```json
- {  
- "data": { 
-	 "confirmed_at": null,
-	  "created_at": "2024-05-11T13:39:40.74831759+08:00", 
-	  "dry_run": true, 
-	  "dry_run_result": "", 
-	  "error": "failed to get active sector set: RPCConnectionError", 
-	  "extension": 21000, 
-	  "from": "2024-05-12T07:34:47Z", 
-	  "id": 11, 
-	  "messages": null, 
-	  "miner": "t017387", 
-	  "new_expiration": null, 
-	  "status": "failed", 
-	  "to": "2024-05-13T07:34:47Z", 
-	  "took": 32524714461, 
-	  "updated_at": "2024-05-11T13:40:16.237069667+08:00" 
-	  }
+{
+  "data": {
+    "confirmed_at": null,
+    "created_at": "2024-05-13T16:44:58.208723388+08:00",
+    "dry_run": false,
+    "dry_run_result": "",
+    "error": "",
+    "extension": 21000,
+    "from": "2024-05-13T15:18:47+08:00",
+    "id": 19,
+    "messages": [
+      "bafy2bzacecvqxeqlk4z2gugbtbhgjmptdfjpt73jemf2zwtbj7lepxhf4h6r4"
+    ],
+    "miner": "f017387",
+    "new_expiration": null,
+    "status": "pending",
+    "to": "2024-05-14T15:18:47+08:00",
+    "took": 526.841994321,
+    "updated_at": "2024-05-13T16:53:55.942614308+08:00"
+  }
 }
  ```

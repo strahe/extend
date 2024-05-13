@@ -2,14 +2,20 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api/client"
 	apitypes "github.com/filecoin-project/lotus/api/types"
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
+	"github.com/filecoin-project/lotus/node/repo"
+	"github.com/urfave/cli/v2"
 	"time"
 )
 
@@ -36,4 +42,16 @@ func TimestampToEpoch(ts time.Time) abi.ChainEpoch {
 
 func SetupGenesisTime(ts time.Time) {
 	genesisTime = ts
+}
+
+func GetFullNodeAPI(ctx *cli.Context) (api.FullNode, jsonrpc.ClientCloser, error) {
+	addr, headers, err := cliutil.GetRawAPI(ctx, repo.FullNode, "v1")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cliutil.IsVeryVerbose {
+		_, _ = fmt.Fprintln(ctx.App.Writer, "using full node API v1 endpoint:", addr)
+	}
+	return client.NewFullNodeRPCV1(ctx.Context, addr, headers, jsonrpc.WithTimeout(15*time.Minute))
 }

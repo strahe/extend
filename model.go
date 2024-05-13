@@ -33,7 +33,7 @@ type Request struct {
 	Status        RequestStatus   `gorm:"index" json:"status"`
 	Messages      []*Message      `json:"messages"`
 	Error         string          `json:"error"`
-	Took          time.Duration   `json:"took"`
+	Took          float64         `json:"took"` // Time in seconds
 	ConfirmedAt   *time.Time      `json:"confirmed_at"`
 	DryRun        bool            `json:"dry_run"`
 	DryRunResult  string          `json:"dry_run_result"`
@@ -45,13 +45,18 @@ type Request struct {
 // Message represents a message in the system.
 // It contains a unique identifier (MsgCid) and a list of Extensions.
 type Message struct {
-	ID         uint           `gorm:"primarykey" json:"id"`
-	Cid        CID            `gorm:"index" json:"cid"` // The unique identifier of the message
-	Extensions []Extension2   `json:"extensions"`       // The list of extensions associated with the message
-	RequestID  uint           `json:"request_id"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
+	ID         uint         `gorm:"primarykey"`
+	Cid        CID          `gorm:"index"` // The unique identifier of the message
+	Extensions []Extension2 // The list of extensions associated with the message
+	RequestID  uint
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  gorm.DeletedAt `gorm:"index"`
+}
+
+func (m *Message) MarshalJSON() ([]byte, error) {
+	// We only need to marshal the CID as a string
+	return json.Marshal(m.Cid.String())
 }
 
 // Extension2 represents an extension in the system.
