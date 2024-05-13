@@ -7,7 +7,7 @@ Filecoin sector 续期服务
 
 ```shell  
 # 编译主网程序  
-make extend  
+make  
   
 # 编译测试网程序  
 make calibnet  
@@ -18,7 +18,8 @@ OPTIONS:
  --listen value  specify the address to listen on (default: "127.0.0.1:8000")
  --db value      specify the database file to use (default: "extend.db") 
  --secret value  specify the secret to use for API authentication, if not set, no auth will be enabled 
- --debug         enable debug logging (default: false) --help, -h      show help  
+ --debug         enable debug logging (default: false) 
+ --help, -h      show help  
 
 # 查看帮助  
 ./extend -h  
