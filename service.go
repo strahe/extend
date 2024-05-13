@@ -76,8 +76,8 @@ func (s *Service) processRequest() error {
 		"extension", request.Extension, "new_expiration", request.NewExpiration,
 		"dry_run", request.DryRun)
 
-	fromEpoch := TimestampToEpoch(request.From.Unix())
-	toEpoch := TimestampToEpoch(request.To.Unix())
+	fromEpoch := TimestampToEpoch(request.From)
+	toEpoch := TimestampToEpoch(request.To)
 
 	messages, dryRuns, err := s.extend(context.Background(), request.Miner.Address,
 		fromEpoch, toEpoch, request.Extension, request.NewExpiration, tolerance, request.DryRun)
@@ -148,7 +148,7 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 	return request, s.db.Create(request).Error
 }
 
-func (s *Service) getRequest(ctx context.Context, id uint) (*Request, error) {
+func (s *Service) getRequest(_ context.Context, id uint) (*Request, error) {
 	var request Request
 	if err := s.db.First(&request, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

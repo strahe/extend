@@ -62,8 +62,8 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("either extension or new_expiration must be set"))
 		return
 	}
-	fromEpoch := TimestampToEpoch(args.From.Unix())
-	toEpoch := TimestampToEpoch(args.To.Unix())
+	fromEpoch := TimestampToEpoch(args.From)
+	toEpoch := TimestampToEpoch(args.To)
 	if toEpoch < fromEpoch {
 		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("to must be greater than from"))
 		return
@@ -112,5 +112,5 @@ func warpResponse(w http.ResponseWriter, code int, data interface{}, err error) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Write(payload) // nolint: errcheck
+	_, _ = w.Write(payload) // nolint: errcheck
 }

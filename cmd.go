@@ -124,7 +124,18 @@ var runCmd = &cli.Command{
 
 		ctx := lcli.DaemonContext(cctx)
 
-		shutdownChan := make(chan struct{})
+		gtp, err := fullApi.ChainGetGenesis(ctx)
+		if err != nil {
+			return err
+		}
+		genesisTime := time.Unix(int64(gtp.MinTimestamp()), 0)
+		SetupGenesisTime(genesisTime)
+
+		head, err := fullApi.ChainHead(ctx)
+		if err != nil {
+			return err
+		}
+		log.Infof("connected to lotus node; current head is %s, genesis time is: %s", head.Height(), genesisTime)
 
 		var secret []byte
 		var authStatus = "disabled"
@@ -133,6 +144,7 @@ var runCmd = &cli.Command{
 			authStatus = "enabled"
 		}
 
+		shutdownChan := make(chan struct{})
 		srv := &http.Server{
 			Handler: NewRouter(NewService(ctx, db, fullApi, shutdownChan), secret),
 			Addr:    cctx.String("listen"),
