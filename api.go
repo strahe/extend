@@ -13,10 +13,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-const (
-	tolerance = 20160 // 7 days
-)
-
 func NewRouter(srv *Service, secret []byte) http.Handler {
 	r := mux.NewRouter()
 	r.Use(authMiddleware(secret))
@@ -45,6 +41,7 @@ type createRequestArgs struct {
 	To            time.Time       `json:"to"`
 	Extension     *abi.ChainEpoch `json:"extension"`
 	NewExpiration *abi.ChainEpoch `json:"new_expiration"`
+	Tolerance     *abi.ChainEpoch `json:"tolerance"`
 	DryRun        bool            `json:"dry_run"`
 }
 
@@ -69,10 +66,13 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req, err := a.srv.createRequest(r.Context(), args.Miner, args.From, args.To,
-		args.Extension, args.NewExpiration, args.DryRun)
+		args.Extension, args.NewExpiration, args.Tolerance, args.DryRun)
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return
+	}
+	if req.Messages == nil {
+		req.Messages = make([]*Message, 0)
 	}
 	warpResponse(w, http.StatusOK, req, nil)
 }

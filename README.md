@@ -47,14 +47,15 @@ Authorization:  Bearer  <token>
 创建一个续期请求
 #### 请求参数
 
-| 参数名            | 值                         | 是否必须 | 说明                                            |  
-|----------------|---------------------------|------|-----------------------------------------------|  
-| miner          | f01234                    | 是    | 节点名字                                          |  
-| from           | 2024-05-12T07:34:47+00:00 | 是    | sector到期范围的开始时间,RFC3339格式，表明续期这个范围的sector     |  
-| to             | 2024-05-13T07:34:47+00:00 | 是    | sector到期的结束时间,RFC3339格式，表明续期这个范围的sector       |  
-| extension      | 20160                     | 否    | 续期的Epoch数量，即在原有效期的基础上追加对应的高度                  |  
-| new_expiration | 3212223                   | 否    | 不管之前的有效期是多少，统一续期到指定的高度，如果设置了这个值，extension将被忽略 |  
-| dry_run        | false                     | 否    | 是否是测试，如果是测试，不会真正执行续期操作，只会做一些检查                |  
+| 参数名            | 值                         | 是否必须 | 说明                                                            |  
+|----------------|---------------------------|------|---------------------------------------------------------------|  
+| miner          | f01234                    | 是    | 节点名字                                                          |  
+| from           | 2024-05-12T07:34:47+00:00 | 是    | sector到期范围的开始时间,RFC3339格式，表明续期这个范围的sector                     |  
+| to             | 2024-05-13T07:34:47+00:00 | 是    | sector到期的结束时间,RFC3339格式，表明续期这个范围的sector                       |  
+| extension      | 20160                     | 否    | 续期的Epoch数量，即在原有效期的基础上追加对应的高度                                  |  
+| new_expiration | 3212223                   | 否    | 不管之前的有效期是多少，统一续期到指定的高度，如果设置了这个值，extension将被忽略                 |  
+| tolerance      | 20160，7天，默认值              | 否    | 续期公差，精度，将到期时间相近的sector聚合成相同的到期时间，减少消息大小，降低gas, 且最低续期时间不能低于这个值 |
+| dry_run        | false，默认                  | 否    | 是否是测试，如果是测试，不会真正执行续期操作，只会做一些检查                                |  
 
 #### 请求示例
 ```json  
@@ -64,6 +65,7 @@ Authorization:  Bearer  <token>
  "to": "2024-05-13T07:34:47+00:00", 
  "extension": 20160, 
  "new_expiration": 3212223, 
+  "tolerance": 20160,
  "dry_run": false
  }  
 ```  
@@ -77,6 +79,7 @@ Authorization:  Bearer  <token>
 | to             | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                  |  
 | new_expiration | null                                                  | 新的过期时间，创建时指定的参数                           |  
 | messages       | null                                                  | 续期上链的消息，array                             |  
+| tolerance      | 20160                                                 | 续期公差，创建时指定的参数                             |
 | miner          | "t017387"                                             | 矿工                                        |  
 | status         | "failed"                                              | 状态，`created`,`pending`,`failed`,`success` |  
 | took           | 526.841994321                                         | 续期执行耗时,单位s                                |  
@@ -97,6 +100,7 @@ Authorization:  Bearer  <token>
 	 "dry_run_result": "", 
 	 "error": "failed to get active sector set: RPCConnectionError", 
 	 "extension": 21000, 
+     "tolerance": 20160,
 	 "from": "2024-05-12T07:34:47Z", 
 	 "id": 11, 
 	 "messages": null, 
@@ -137,3 +141,43 @@ Authorization:  Bearer  <token>
   }
 }
  ```
+
+### 使用限制
+
+续期有很多硬性和软性的限制， 其中硬性限制是无法绕过的，包括：
+* 每个请求的sector数量不能超过25000个
+* 每个请求最大的Declarations不能超过3000个
+* sector 只能最大生命周期是5年
+* sector 最大续期周期是3年半 （1278d）
+
+软性限制包括：
+* gas fee 限制
+* 虚拟机性能限制等
+
+> [!TIP]
+> 什么是 Declarations？
+> 想象一个二维坐标轴，x轴是要续期的目的高度，y轴是sector的位置(deadline,partition),任何续期的sector都可以用一个坐标来表示.
+> sector 的位置(y)和续期目的高度(x)可以相同，即在坐标上用相同的点表示，也可以不同，即在坐标上用不同的点表示.
+> 这一个点就是一个Declaration，一个请求可以有多个Declaration，但是不能超过3000个.
+> 一个Declaration可以包含多个sector，且所有Declarations包含的sector不能大于25000个.
+
+> [!TIP]
+> 什么是 Tolerance? 
+> 根据Declarations的定义可以得知，续期限制主要是Declaration的数量，即二维坐标上的点的数量，而不是sector的数量.
+> Tolerance是一个续期公差，用于将续期后的到期时间相近的sector聚合成相同的到期时间，即相同的x坐标，
+> 这样在二维坐标上有更多的点重合，降低Declaration数量，从而降低消息大小，降低gas fee.
+> 同时要求最低续期时间不能低于这个值.
+> 举例说明： 如果一个sector续期到 2024-06-01:00:00:00, 另一个sector续期到它的6小时以后，即2024-06-01:00:06:00， 此时如果我们设置的Tolerance公差大于6小时，那么第二个sector也会续期到和第一个sector相同的时间，即2024-06-01:00:00:00，（比实际少续6小时）， 如果我们设置Tolerance公差小于6小时，那么这两个sector会单独续期到各自的时间.
+
+## 异常
+
+Http status：
+* 400： 请求问题
+* 500： 服务器问题
+* 401： 授权问题（如果开启）
+
+```json
+{
+  "error": "msg"
+}
+```

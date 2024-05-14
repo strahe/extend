@@ -4,6 +4,7 @@ import (
 	"fmt"
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/node"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"net/http"
@@ -105,6 +106,14 @@ var runCmd = &cli.Command{
 			Value: false,
 			Usage: "enable debug logging",
 		},
+	},
+	Before: func(cctx *cli.Context) error {
+		if cctx.Bool("debug") {
+			_ = logging.SetLogLevel("extend", "debug")
+		} else {
+			_ = logging.SetLogLevel("extend", "info")
+		}
+		return nil
 	},
 	Action: func(cctx *cli.Context) error {
 		dbPath, err := homedir.Expand(cctx.String("db"))

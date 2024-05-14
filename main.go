@@ -19,21 +19,6 @@ func main() {
 			runCmd,
 			authCmd,
 		},
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  "debug",
-				Value: false,
-				Usage: "enable debug logging",
-			},
-		},
-		Before: func(cctx *cli.Context) error {
-			if cctx.Bool("debug") {
-				_ = logging.SetLogLevel("extend", "debug")
-			} else {
-				_ = logging.SetLogLevel("extend", "info")
-			}
-			return nil
-		},
 	}
 	app.Setup()
 	lcli.RunApp(app)

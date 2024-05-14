@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,10 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"gorm.io/gorm"
+)
+
+const (
+	defaultTolerance = abi.ChainEpoch(20160) // default tolerance is 7 days
 )
 
 type Service struct {
@@ -73,14 +78,13 @@ func (s *Service) processRequest() error {
 	log.Infow("processing request", "id", request.ID,
 		"miner", request.Miner.Address, "from", request.From, "to", request.To,
 		"extension", request.Extension, "new_expiration", request.NewExpiration,
-		"dry_run", request.DryRun)
-
+		"tolerance", request.Tolerance, "dry_run", request.DryRun)
 	fromEpoch := TimestampToEpoch(request.From)
 	toEpoch := TimestampToEpoch(request.To)
 
 	start := time.Now()
 	messages, dryRuns, err := s.extend(context.Background(), request.Miner.Address,
-		fromEpoch, toEpoch, request.Extension, request.NewExpiration, tolerance, request.DryRun)
+		fromEpoch, toEpoch, request.Extension, request.NewExpiration, request.Tolerance, request.DryRun)
 	if err != nil {
 		log.Errorf("processing request %d failed: %s, took: %s", request.ID, err, time.Since(start))
 		request.Status = RequestStatusFailed
@@ -111,7 +115,7 @@ func (s *Service) processRequest() error {
 	return nil
 }
 
-func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time, extension, newExpiration *abi.ChainEpoch, dryRun bool) (*Request, error) {
+func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time, extension, newExpiration, tolerance *abi.ChainEpoch, dryRun bool) (*Request, error) {
 	if extension == nil && newExpiration == nil {
 		return nil, fmt.Errorf("either extension or new_expiration must be set")
 	}
@@ -123,14 +127,18 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain head: %w", err)
 	}
+	var tol = defaultTolerance
+	if tolerance != nil {
+		tol = *tolerance
+	}
 
 	if extension != nil {
-		if int(*extension) < tolerance {
+		if (*extension) < tol {
 			return nil, fmt.Errorf("extension must be greater than %d epochs", tolerance)
 		}
 	}
 	if newExpiration != nil {
-		if *newExpiration-head.Height() < tolerance {
+		if *newExpiration-head.Height() < tol {
 			return nil, fmt.Errorf("new expiration must be greater than %d epochs from now", tolerance)
 		}
 	}
@@ -141,6 +149,7 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 		To:            to,
 		Extension:     extension,
 		NewExpiration: newExpiration,
+		Tolerance:     tol,
 		Status:        RequestStatusCreated,
 		DryRun:        dryRun,
 	}
@@ -183,10 +192,9 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		return nil, nil, fmt.Errorf("failed to get addressed sectors max: %w", err)
 	}
 	time1 := time.Now()
-	// this maybe takes long time based on the number of sectors
-	activeSet, err := s.api.StateMinerActiveSectors(ctx, addr, types.EmptyTSK)
+	activeSet, err := warpActiveSectors(ctx, s.api, addr, false) // only for debug, do not cache in production
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get active sector set: %w", err)
+		return nil, nil, fmt.Errorf("failed to get active set: %w", err)
 	}
 	log.Infof("got active set with %d sectors, took: %s", len(activeSet), time.Since(time1))
 	var sectors []abi.SectorNumber
@@ -197,8 +205,9 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 			sectors = append(sectors, info.SectorNumber)
 		}
 	}
-	log.Infof("found %d sectors to extend, nothing to do", len(sectors))
+	log.Infof("found %d sectors to extend", len(sectors))
 	if len(sectors) == 0 {
+		log.Infof("nothing to extend, break")
 		return nil, nil, nil
 	}
 
@@ -264,6 +273,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		log.Debugf("extending sector %d from %d to %d", si.SectorNumber, si.Expiration, newExp)
 		es, found := extensions[*l]
 		if !found {
+			log.Debugw(si.SectorNumber.String(), "found", found, "exp", si.Expiration, "newExp", newExp)
 			ne := make(map[abi.ChainEpoch][]abi.SectorNumber)
 			ne[newExp] = []abi.SectorNumber{si.SectorNumber}
 			extensions[*l] = ne
@@ -273,10 +283,12 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 				if withinTolerance(tolerance)(newExp, exp) {
 					es[exp] = append(es[exp], si.SectorNumber)
 					added = true
+					log.Debugw(si.SectorNumber.String(), "tolerance", tolerance, "exp", si.Expiration, "newExp", exp)
 					break
 				}
 			}
 			if !added {
+				log.Debugw(si.SectorNumber.String(), "exp", si.Expiration, "newExp", newExp)
 				es[newExp] = []abi.SectorNumber{si.SectorNumber}
 			}
 		}
@@ -528,4 +540,57 @@ func withinTolerance(t abi.ChainEpoch) func(a, b abi.ChainEpoch) bool {
 		}
 		return diff <= t
 	}
+}
+
+// warpActiveSectors returns active sectors for the miner, cached in a file, if cache is true
+// this is for debugging, do not use in production
+func warpActiveSectors(ctx context.Context, api API, addr address.Address, cache bool) ([]*miner.SectorOnChainInfo, error) {
+	if cache {
+		v, err := activeSetFromCache(addr)
+		if err == nil {
+			return v, nil
+		}
+	}
+	// this maybe takes long time based on the number of sectors
+	activeSet, err := api.StateMinerActiveSectors(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active sector set: %w", err)
+	}
+	defer func() {
+		if cache {
+			if err := activeSetCacheToFile(addr, activeSet); err != nil {
+				log.Errorf("failed to cache active set: %s", err)
+			}
+		}
+	}()
+	return activeSet, nil
+}
+
+// for debugging
+func activeSetCacheToFile(addr address.Address, activeSet []*miner.SectorOnChainInfo) error {
+	data, err := json.Marshal(activeSet)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(fmt.Sprintf("%s.activeSet.json", addr), data, 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// for debugging
+func activeSetFromCache(addr address.Address) ([]*miner.SectorOnChainInfo, error) {
+	data, err := os.ReadFile(fmt.Sprintf("%s.activeSet.json", addr))
+	if err != nil {
+		return nil, err
+	}
+	var activeSet []*miner.SectorOnChainInfo
+	err = json.Unmarshal(data, &activeSet)
+	if err != nil {
+		return nil, err
+	}
+
+	return activeSet, nil
 }
