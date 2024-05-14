@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/node"
@@ -8,6 +9,9 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -131,7 +135,7 @@ var runCmd = &cli.Command{
 		}
 		defer nCloser()
 
-		ctx := lcli.DaemonContext(cctx)
+		ctx := lcli.ReqContext(cctx)
 
 		gtp, err := fullApi.ChainGetGenesis(ctx)
 		if err != nil {
@@ -153,9 +157,9 @@ var runCmd = &cli.Command{
 			authStatus = "enabled"
 		}
 
-		shutdownChan := make(chan struct{})
+		service := NewService(ctx, db, fullApi)
 		srv := &http.Server{
-			Handler: NewRouter(NewService(ctx, db, fullApi, shutdownChan), secret),
+			Handler: NewRouter(service, secret),
 			Addr:    cctx.String("listen"),
 			// Good practice: enforce timeouts for servers you create!
 			WriteTimeout: 15 * time.Second,
@@ -170,9 +174,44 @@ var runCmd = &cli.Command{
 		}()
 
 		// Monitor for shutdown.
-		finishCh := node.MonitorShutdown(shutdownChan,
-			node.ShutdownHandler{Component: "api", StopFunc: srv.Shutdown})
+		finishCh := MonitorShutdown(
+			node.ShutdownHandler{Component: "api", StopFunc: srv.Shutdown},
+			node.ShutdownHandler{Component: "service", StopFunc: service.Shutdown},
+		)
 		<-finishCh
 		return nil
 	},
+}
+
+func MonitorShutdown(handlers ...node.ShutdownHandler) <-chan struct{} {
+	sigCh := make(chan os.Signal, 2)
+	out := make(chan struct{})
+
+	go func() {
+		select {
+		case sig := <-sigCh:
+			log.Warnw("received shutdown", "signal", sig)
+		}
+
+		log.Warn("Shutting down...")
+
+		// Call all the handlers, logging on failure and success.
+		for _, h := range handlers {
+			if err := h.StopFunc(context.TODO()); err != nil {
+				log.Errorf("shutting down %s failed: %s", h.Component, err)
+				continue
+			}
+			log.Infof("%s shut down successfully ", h.Component)
+		}
+
+		log.Warn("Graceful shutdown successful")
+
+		// Sync all loggers.
+		_ = log.Sync() //nolint:errcheck
+		close(out)
+	}()
+
+	signal.Reset(syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	return out
 }

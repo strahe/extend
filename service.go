@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/filecoin-project/go-address"
@@ -16,14 +17,20 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/exitcode"
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
+	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 	"gorm.io/gorm"
 )
 
@@ -32,42 +39,74 @@ const (
 )
 
 type Service struct {
-	api          API
-	adtStore     adt.Store
-	db           *gorm.DB
-	shutdownChan chan struct{}
+	api              API
+	adtStore         adt.Store
+	db               *gorm.DB
+	mux              sync.Mutex
+	wg               sync.WaitGroup
+	watchingMessages map[uint]struct{}
 }
 
-func NewService(ctx context.Context, db *gorm.DB, api API, shutdownChan chan struct{}) *Service {
+func NewService(ctx context.Context, db *gorm.DB, api API) *Service {
 	tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(api), blockstore.NewMemory())
 	adtStore := adt.WrapStore(ctx, cbor.NewCborStore(tbs))
+
 	s := &Service{
-		db:           db,
-		api:          api,
-		adtStore:     adtStore,
-		shutdownChan: shutdownChan,
+		db:               db,
+		api:              api,
+		adtStore:         adtStore,
+		watchingMessages: map[uint]struct{}{},
 	}
-	go s.run()
+	go s.runProcessor(ctx)
+	go s.runMessageChecker(ctx)
 	return s
 }
 
-func (s *Service) run() {
+func (s *Service) Shutdown(_ context.Context) error {
+	log.Infof("waiting for services to shutdown")
+	s.wg.Wait()
+	return nil
+}
+
+func (s *Service) runProcessor(ctx context.Context) {
+	s.wg.Add(1)
+	defer s.wg.Done()
+
 	tk := time.NewTicker(5 * time.Second)
 	defer tk.Stop()
 	for {
 		select {
-		case <-s.shutdownChan:
-			log.Infof("shutting down service")
+		case <-ctx.Done():
+			log.Infof("context done, stopping processor")
 			return
 		case <-tk.C:
-			if err := s.processRequest(); err != nil {
+			if err := s.processRequest(ctx); err != nil {
 				log.Errorf("failed to process request: %s", err)
 			}
 		}
 	}
 }
 
-func (s *Service) processRequest() error {
+func (s *Service) runMessageChecker(ctx context.Context) {
+	s.wg.Add(1)
+	defer s.wg.Done()
+
+	tk := time.NewTicker(builtin.EpochDurationSeconds * time.Second) // check interval is 30 seconds
+	defer tk.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("context done, stopping message checker")
+			return
+		case <-tk.C:
+			if err := s.checkMessage(ctx); err != nil {
+				log.Errorf("failed to check messages: %s", err)
+			}
+		}
+	}
+}
+
+func (s *Service) processRequest(ctx context.Context) error {
 	var request Request
 	if err := s.db.First(&request, "status = ?", "created").Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -83,7 +122,7 @@ func (s *Service) processRequest() error {
 	toEpoch := TimestampToEpoch(request.To)
 
 	start := time.Now()
-	messages, dryRuns, err := s.extend(context.Background(), request.Miner.Address,
+	messages, dryRuns, err := s.extend(ctx, request.Miner.Address,
 		fromEpoch, toEpoch, request.Extension, request.NewExpiration, request.Tolerance, request.DryRun)
 	if err != nil {
 		log.Errorf("processing request %d failed: %s, took: %s", request.ID, err, time.Since(start))
@@ -456,6 +495,110 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		messages = append(messages, msg)
 	}
 	return messages, dryRuns, nil
+}
+
+func (s *Service) checkMessage(ctx context.Context) error {
+	var request Request
+	if err := s.db.Preload("Messages").First(&request, "status = ?", RequestStatusPending).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+	log.Infow("check request messages", "id", request.ID,
+		"miner", request.Miner.Address, "messages", request.MessageCids())
+
+	var allOnChain = true
+	var allSuccess = true
+	var errorMsgs []string
+	for _, msg := range request.Messages {
+		if msg.OnChain {
+			// watch message done
+			if !errors.Is(msg.ExitCode, exitcode.Ok) {
+				allSuccess = false
+				errorMsgs = append(errorMsgs, msg.ExitCode.Error())
+			}
+			continue
+		}
+		allOnChain = false
+		s.mux.Lock()
+		if _, ok := s.watchingMessages[msg.ID]; ok {
+			s.mux.Unlock()
+			log.Debugf("message [%d]%s is already watching", msg.ID, msg.Cid)
+			continue
+		}
+		s.mux.Unlock()
+		go s.watchMessage(ctx, msg.Cid.Cid)
+	}
+	if allOnChain {
+		if allSuccess {
+			request.Status = RequestStatusSuccess
+			request.ConfirmedAt = lo.ToPtr(time.Now())
+			log.Infof("request [%d] all messages on chain, status: %s", request.ID, request.Status)
+		} else {
+			request.Status = RequestStatusPartfailed
+			request.Error = strings.Join(errorMsgs, ",")
+			log.Infof("request %d messages on chain, status: %s, failed: %d", request.ID, request.Status, len(errorMsgs))
+		}
+		if err := s.db.Save(&request).Error; err != nil {
+			return fmt.Errorf("failed to save request: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) watchMessage(ctx context.Context, id cid.Cid) {
+	var msg Message
+	if err := s.db.First(&msg, "cid = ?", id.String()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Errorf("message not found: %s", id)
+		} else {
+			log.Errorf("failed to get message: %s", err)
+		}
+		return
+	}
+	s.mux.Lock()
+	if _, ok := s.watchingMessages[msg.ID]; ok {
+		s.mux.Unlock()
+		log.Warnf("message %d is already watching", msg.ID)
+		return
+	}
+	s.watchingMessages[msg.ID] = struct{}{}
+	s.mux.Unlock()
+
+	defer func() {
+		s.mux.Lock()
+		delete(s.watchingMessages, msg.ID)
+		s.mux.Unlock()
+	}()
+
+	log.Infow("watching message", "id", msg.ID, "request", msg.RequestID, "cid", id)
+
+	receipt, err := s.api.StateWaitMsg(ctx, id, 2*build.MessageConfidence, api.LookbackNoLimit, true)
+	if err != nil {
+		// todo: handle error
+		log.Errorf("failed to wait message: %s", err)
+		return
+	}
+	msg.OnChain = true
+	msg.ExitCode = receipt.Receipt.ExitCode
+	msg.Return = receipt.Receipt.Return
+	msg.GasUsed = receipt.Receipt.GasUsed
+
+	if err := s.db.Save(&msg).Error; err != nil {
+		log.Errorf("failed to save message: %s", err)
+	}
+}
+
+func (s *Service) waitForExtendMessage(ctx context.Context, msg cid.Cid) (bool, error) {
+	receipt, err := s.api.StateWaitMsg(ctx, msg, 2*build.MessageConfidence, api.LookbackNoLimit, true)
+	if err != nil {
+		return false, err
+	}
+	if !errors.Is(receipt.Receipt.ExitCode, exitcode.Ok) {
+		return false, xerrors.Errorf("extend msg exit code: %s", receipt.Receipt.ExitCode)
+	}
+	return true, nil
 }
 
 func SectorNumsToBitfield(sectors []abi.SectorNumber) bitfield.BitField {

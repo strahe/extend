@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/go-state-types/exitcode"
 	"time"
 
 	"github.com/filecoin-project/go-address"
@@ -16,10 +17,11 @@ import (
 type RequestStatus string
 
 const (
-	RequestStatusCreated RequestStatus = "created"
-	RequestStatusPending               = "pending"
-	RequestStatusFailed                = "failed"
-	RequestStatusSuccess               = "success"
+	RequestStatusCreated    RequestStatus = "created"
+	RequestStatusPending                  = "pending"
+	RequestStatusFailed                   = "failed"
+	RequestStatusPartfailed               = "partfailed"
+	RequestStatusSuccess                  = "success"
 )
 
 // Request represents a request in the system.
@@ -43,6 +45,14 @@ type Request struct {
 	DeletedAt     gorm.DeletedAt  `gorm:"index" json:"-"`
 }
 
+func (r Request) MessageCids() []string {
+	var cids []string
+	for _, msg := range r.Messages {
+		cids = append(cids, msg.Cid.String())
+	}
+	return cids
+}
+
 // Message represents a message in the system.
 // It contains a unique identifier (MsgCid) and a list of Extensions.
 type Message struct {
@@ -50,6 +60,10 @@ type Message struct {
 	Cid        CID          `gorm:"index"` // The unique identifier of the message
 	Extensions []Extension2 // The list of extensions associated with the message
 	RequestID  uint
+	OnChain    bool
+	ExitCode   exitcode.ExitCode
+	Return     []byte
+	GasUsed    int64
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  gorm.DeletedAt `gorm:"index"`

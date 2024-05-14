@@ -43,7 +43,7 @@ Authorization:  Bearer  <token>
 
 ## 2. Usage
 
-### POST /requests/create
+### POST /requests
 创建一个续期请求
 #### 请求参数
 

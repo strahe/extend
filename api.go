@@ -18,8 +18,8 @@ func NewRouter(srv *Service, secret []byte) http.Handler {
 	r.Use(authMiddleware(secret))
 
 	impl := newImplAPI(srv)
-	r.HandleFunc("/create", impl.create).Methods("POST")
-	r.HandleFunc("/get/{id:[0-9]+}", impl.get).Methods("GET")
+	r.HandleFunc("/requests", impl.create).Methods("POST")
+	r.HandleFunc("/requests/{id:[0-9]+}", impl.get).Methods("GET")
 	return r
 }
 

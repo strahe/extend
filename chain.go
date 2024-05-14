@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/node/repo"
+	"github.com/ipfs/go-cid"
 	"github.com/urfave/cli/v2"
 	"time"
 )
@@ -32,6 +33,7 @@ type API interface {
 	StateGetActor(context.Context, address.Address, types.TipSetKey) (*types.Actor, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error) //perm:read
 	MpoolPushMessage(context.Context, *types.Message, *api.MessageSendSpec) (*types.SignedMessage, error)
+	StateWaitMsg(ctx context.Context, cid cid.Cid, confidence uint64, limit abi.ChainEpoch, allowReplaced bool) (*api.MsgLookup, error)
 }
 
 func TimestampToEpoch(ts time.Time) abi.ChainEpoch {
