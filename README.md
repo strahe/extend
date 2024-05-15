@@ -18,6 +18,7 @@ OPTIONS:
  --listen value  specify the address to listen on (default: "127.0.0.1:8000")
  --db value      specify the database file to use (default: "extend.db") 
  --secret value  specify the secret to use for API authentication, if not set, no auth will be enabled 
+ --max-wait value  [Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing (default: 0s)
  --debug         enable debug logging (default: false) 
  --help, -h      show help  
 

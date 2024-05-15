@@ -105,6 +105,10 @@ var runCmd = &cli.Command{
 			Name:  "secret",
 			Usage: "specify the secret to use for API authentication, if not set, no auth will be enabled",
 		},
+		&cli.DurationFlag{
+			Name:  "max-wait",
+			Usage: "[Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing",
+		},
 		&cli.BoolFlag{
 			Name:  "debug",
 			Value: false,
@@ -157,7 +161,7 @@ var runCmd = &cli.Command{
 			authStatus = "enabled"
 		}
 
-		service := NewService(ctx, db, fullApi)
+		service := NewService(ctx, db, fullApi, cctx.Duration("max-wait"))
 		srv := &http.Server{
 			Handler: NewRouter(service, secret),
 			Addr:    cctx.String("listen"),

@@ -34,6 +34,12 @@ type API interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error) //perm:read
 	MpoolPushMessage(context.Context, *types.Message, *api.MessageSendSpec) (*types.SignedMessage, error)
 	StateWaitMsg(ctx context.Context, cid cid.Cid, confidence uint64, limit abi.ChainEpoch, allowReplaced bool) (*api.MsgLookup, error)
+	ChainGetMessage(context.Context, cid.Cid) (*types.Message, error)
+	MpoolPending(context.Context, types.TipSetKey) ([]*types.SignedMessage, error)
+	MpoolGetConfig(context.Context) (*types.MpoolConfig, error)
+	GasEstimateMessageGas(context.Context, *types.Message, *api.MessageSendSpec, types.TipSetKey) (*types.Message, error)
+	WalletSignMessage(context.Context, address.Address, *types.Message) (*types.SignedMessage, error)
+	MpoolPush(context.Context, *types.SignedMessage) (cid.Cid, error)
 }
 
 func TimestampToEpoch(ts time.Time) abi.ChainEpoch {

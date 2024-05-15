@@ -26,52 +26,90 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
+	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/node/config"
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
-	"golang.org/x/xerrors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
 	defaultTolerance = abi.ChainEpoch(20160) // default tolerance is 7 days
 )
 
+type watchMessage struct {
+	id       uint
+	cid      CID
+	started  time.Time
+	cancelCh chan struct{}
+}
+
+func newWatchMessage(m *Message) *watchMessage {
+	return &watchMessage{
+		id:       m.ID,
+		cid:      m.Cid,
+		started:  time.Now(),
+		cancelCh: make(chan struct{}),
+	}
+}
+
+func (w *watchMessage) Cancel() {
+	close(w.cancelCh)
+}
+
 type Service struct {
 	api              API
 	adtStore         adt.Store
 	db               *gorm.DB
+	maxWait          time.Duration
 	mux              sync.Mutex
 	wg               sync.WaitGroup
-	watchingMessages map[uint]struct{}
+	watchingMessages map[uint]*watchMessage
+	shutdownFunc     context.CancelFunc
 }
 
-func NewService(ctx context.Context, db *gorm.DB, api API) *Service {
+func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration) *Service {
 	tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(api), blockstore.NewMemory())
 	adtStore := adt.WrapStore(ctx, cbor.NewCborStore(tbs))
+
+	ctx, cancel := context.WithCancel(ctx)
 
 	s := &Service{
 		db:               db,
 		api:              api,
 		adtStore:         adtStore,
-		watchingMessages: map[uint]struct{}{},
+		watchingMessages: map[uint]*watchMessage{},
+		maxWait:          maxWait,
+		shutdownFunc: func() {
+			cancel()
+		},
 	}
+	s.wg.Add(3)
 	go s.runProcessor(ctx)
 	go s.runMessageChecker(ctx)
+	go s.runPendingChecker(ctx)
 	return s
 }
 
 func (s *Service) Shutdown(_ context.Context) error {
 	log.Infof("waiting for services to shutdown")
+	s.mux.Lock()
+	for _, wm := range s.watchingMessages {
+		log.Debugf("cancelling message [%d]%s", wm.id, wm.cid)
+		wm.Cancel()
+	}
+	s.mux.Unlock()
+	s.shutdownFunc()
 	s.wg.Wait()
 	return nil
 }
 
 func (s *Service) runProcessor(ctx context.Context) {
-	s.wg.Add(1)
 	defer s.wg.Done()
-
+	log.Infof("starting processor")
 	tk := time.NewTicker(5 * time.Second)
 	defer tk.Stop()
 	for {
@@ -88,9 +126,8 @@ func (s *Service) runProcessor(ctx context.Context) {
 }
 
 func (s *Service) runMessageChecker(ctx context.Context) {
-	s.wg.Add(1)
 	defer s.wg.Done()
-
+	log.Infof("starting message checker")
 	tk := time.NewTicker(builtin.EpochDurationSeconds * time.Second) // check interval is 30 seconds
 	defer tk.Stop()
 	for {
@@ -524,7 +561,6 @@ func (s *Service) checkMessage(ctx context.Context) error {
 		s.mux.Lock()
 		if _, ok := s.watchingMessages[msg.ID]; ok {
 			s.mux.Unlock()
-			log.Debugf("message [%d]%s is already watching", msg.ID, msg.Cid)
 			continue
 		}
 		s.mux.Unlock()
@@ -563,7 +599,8 @@ func (s *Service) watchMessage(ctx context.Context, id cid.Cid) {
 		log.Warnf("message %d is already watching", msg.ID)
 		return
 	}
-	s.watchingMessages[msg.ID] = struct{}{}
+	wm := newWatchMessage(&msg)
+	s.watchingMessages[msg.ID] = wm
 	s.mux.Unlock()
 
 	defer func() {
@@ -574,31 +611,152 @@ func (s *Service) watchMessage(ctx context.Context, id cid.Cid) {
 
 	log.Infow("watching message", "id", msg.ID, "request", msg.RequestID, "cid", id)
 
-	receipt, err := s.api.StateWaitMsg(ctx, id, 2*build.MessageConfidence, api.LookbackNoLimit, true)
-	if err != nil {
-		// todo: handle error
-		log.Errorf("failed to wait message: %s", err)
-		return
-	}
-	msg.OnChain = true
-	msg.ExitCode = receipt.Receipt.ExitCode
-	msg.Return = receipt.Receipt.Return
-	msg.GasUsed = receipt.Receipt.GasUsed
+	resultChan := make(chan *api.MsgLookup, 1)
+	errorChan := make(chan error, 1)
 
-	if err := s.db.Save(&msg).Error; err != nil {
-		log.Errorf("failed to save message: %s", err)
+	go func() {
+		receipt, err := s.api.StateWaitMsg(ctx, id, 2*build.MessageConfidence, api.LookbackNoLimit, true)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		resultChan <- receipt
+	}()
+
+	select {
+	case receipt := <-resultChan:
+		log.Infof("message [%d]%s on chain", msg.ID, msg.Cid)
+		msg.OnChain = true
+		msg.ExitCode = receipt.Receipt.ExitCode
+		msg.Return = receipt.Receipt.Return
+		msg.GasUsed = receipt.Receipt.GasUsed
+		if err := s.db.Save(&msg).Error; err != nil {
+			log.Errorf("failed to save message: %s", err)
+		}
+	case err := <-errorChan:
+		log.Errorf("failed to wait message: %s", err)
+	case <-ctx.Done():
+		log.Infof("context done, stopping watching message")
+	case <-wm.cancelCh:
+		log.Infof("cancel watching message [%d]%s", msg.ID, msg.Cid)
 	}
 }
 
-func (s *Service) waitForExtendMessage(ctx context.Context, msg cid.Cid) (bool, error) {
-	receipt, err := s.api.StateWaitMsg(ctx, msg, 2*build.MessageConfidence, api.LookbackNoLimit, true)
+func (s *Service) runPendingChecker(ctx context.Context) {
+	defer s.wg.Done()
+	log.Infof("starting pending checker")
+	tk := time.NewTicker(builtin.EpochDurationSeconds * time.Second) // check interval is 30 seconds
+	defer tk.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("context done, stopping pending checker")
+			return
+		case <-tk.C:
+			func() {
+				s.mux.Lock()
+				defer s.mux.Unlock()
+				log.Debugf("checking pending messages, total: %d", len(s.watchingMessages))
+				for id, wm := range s.watchingMessages {
+					if time.Since(wm.started) > 5*time.Minute {
+						log.Warnw("message is pending too long", "id", id, "took", time.Since(wm.started))
+						if s.maxWait > 0 && time.Since(wm.started) > s.maxWait {
+							wm.Cancel()
+							if err := s.replaceMessage(ctx, wm.cid.Cid); err != nil {
+								log.Errorf("failed to replace message: %s", err)
+							}
+						}
+					}
+				}
+			}()
+		}
+	}
+}
+
+func (s *Service) replaceMessage(ctx context.Context, id cid.Cid) error {
+	var m Message
+	if err := s.db.Preload(clause.Associations).First(&m, "cid = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("message not found: %s", id)
+		}
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+
+	log.Infow("replacing message", "id", m.ID, "cid", id)
+
+	// get the message from the chain
+	cm, err := s.api.ChainGetMessage(ctx, id)
 	if err != nil {
-		return false, err
+		return fmt.Errorf("could not find referenced message: %w", err)
 	}
-	if !errors.Is(receipt.Receipt.ExitCode, exitcode.Ok) {
-		return false, xerrors.Errorf("extend msg exit code: %s", receipt.Receipt.ExitCode)
+
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		return fmt.Errorf("getting chain head: %w", err)
 	}
-	return true, nil
+
+	pending, err := s.api.MpoolPending(ctx, ts.Key())
+	if err != nil {
+		return err
+	}
+
+	var found *types.SignedMessage
+	for _, p := range pending {
+		if p.Message.From == cm.From && p.Message.Nonce == cm.Nonce {
+			found = p
+			break
+		}
+	}
+
+	if found == nil {
+		return fmt.Errorf("no pending message found from %s with nonce %d", cm.From, cm.Nonce)
+	}
+	msg := found.Message
+
+	cfg, err := s.api.MpoolGetConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to lookup the message pool config: %w", err)
+	}
+
+	defaultRBF := messagepool.ComputeRBF(msg.GasPremium, cfg.ReplaceByFeeRatio)
+
+	ret, err := s.api.GasEstimateMessageGas(ctx, &msg, nil, types.EmptyTSK)
+	if err != nil {
+		return fmt.Errorf("failed to estimate gas values: %w", err)
+	}
+	msg.GasPremium = big.Max(ret.GasPremium, defaultRBF)
+	msg.GasFeeCap = big.Max(ret.GasFeeCap, msg.GasPremium)
+
+	mff := func() (abi.TokenAmount, error) {
+		return abi.TokenAmount(config.DefaultDefaultMaxFee), nil
+	}
+	messagepool.CapGasFee(mff, &msg, nil)
+
+	smsg, err := s.api.WalletSignMessage(ctx, msg.From, &msg)
+	if err != nil {
+		return fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	newID, err := s.api.MpoolPush(ctx, smsg)
+	if err != nil {
+		return fmt.Errorf("failed to push new message to mempool: %w", err)
+	}
+
+	newMsg := &Message{
+		Cid:        CID{newID},
+		Extensions: m.Extensions,
+		RequestID:  m.RequestID,
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(newMsg).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&m).Error; err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func SectorNumsToBitfield(sectors []abi.SectorNumber) bitfield.BitField {
