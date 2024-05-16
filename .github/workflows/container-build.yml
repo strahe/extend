@@ -11,7 +11,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  NETWORK_TARGET: calibnet
   GO_BUILD_IMAGE: golang:1.22.3
 
 jobs:
@@ -39,7 +38,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
+      - name: Extract metadata for calibnet
         id: meta-for-calibnet
         uses: docker/metadata-action@v4
         with:
@@ -47,14 +46,12 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=ref,event=branch
-            type=ref,event=pr
+            type=semver,pattern={{raw}},prefix=calibnet-
+            type=semver,pattern={{major}}.{{minor}},prefix=calibnet-
+            type=semver,pattern={{major}},prefix=calibnet-
+            type=ref,event=branch,prefix=calibnet-
 
-      - name: Build and push Docker image
+      - name: Build and push Docker for calibnet
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -65,4 +62,30 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=${{ env.NETWORK_TARGET }}
+            NETWORK_TARGET=calibnet
+
+      - name: Extract metadata for mainnet
+        id: meta-for-mainnet
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=true
+          tags: |
+            type=semver,pattern={{raw}},prefix=mainnet-
+            type=semver,pattern={{major}}.{{minor}},prefix=mainnet-
+            type=semver,pattern={{major}},prefix=mainnet-
+            type=ref,event=branch,prefix=mainnet-
+
+      - name: Build and push Docker for mainnet
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-for-mainnet.outputs.tags }}
+          labels: ${{ steps.meta-for-mainnet.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
+            NETWORK_TARGET=mainnet

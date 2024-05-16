@@ -95,23 +95,23 @@ Authorization:  Bearer  <token>
 ```json  
 {  
  "data": { 
-	 "confirmed_at": null, 
-	 "created_at": "2024-05-11T13:39:40.74831759+08:00", 
-	 "dry_run": true, 
-	 "dry_run_result": "", 
-	 "error": "failed to get active sector set: RPCConnectionError", 
-	 "extension": 21000, 
-     "tolerance": 20160,
-	 "from": "2024-05-12T07:34:47Z", 
-	 "id": 11, 
-	 "messages": null, 
-	 "miner": "t017387", 
-	 "new_expiration": null, 
-	 "status": "created", 
-	 "to": "2024-05-13T07:34:47Z", 
-	 "took": 526.841994321, 
-	 "updated_at": "2024-05-11T13:40:16.237069667+08:00"
-	 }
+    "confirmed_at": null, 
+    "created_at": "2024-05-11T13:39:40.74831759+08:00", 
+    "dry_run": true, 
+    "dry_run_result": "", 
+    "error": "failed to get active sector set: RPCConnectionError", 
+    "extension": 21000, 
+    "tolerance": 20160,
+    "from": "2024-05-12T07:34:47Z", 
+    "id": 11, 
+    "messages": null, 
+    "miner": "t017387", 
+    "new_expiration": null, 
+    "status": "created", 
+    "to": "2024-05-13T07:34:47Z", 
+    "took": 526.841994321, 
+    "updated_at": "2024-05-11T13:40:16.237069667+08:00"
+ }
 }  
 ``` 
 
