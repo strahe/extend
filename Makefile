@@ -35,7 +35,6 @@ docker-calibnet: docker-build-image-template
 .PHONY: docker-build-image-template
 docker-build-image-template:
 	docker build -f $(DOCKER_FILE) \
-		--build-arg VERSION=$(VERSION) \
 		--build-arg NETWORK_TARGET=$(NETWORK_TARGET) \
 		--build-arg GO_BUILD_IMAGE=$(GO_BUILD_IMAGE) \
 		-t $(IMAGE_NAME):$(NETWORK_TARGET)-latest \

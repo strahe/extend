@@ -12,6 +12,8 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   GO_BUILD_IMAGE: golang:1.22.3
+  NETWORK_TARGET_MAINNET: mainnet
+  NETWORK_TARGET_CALIBNET: calibnet
 
 jobs:
   build:
@@ -62,7 +64,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=calibnet
+            NETWORK_TARGET=$${{ env.NETWORK_TARGET_CALIBNET }}
 
       - name: Extract metadata for mainnet
         id: meta-for-mainnet
@@ -88,4 +90,4 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=mainnet
+            NETWORK_TARGET=$${{ env.NETWORK_TARGET_MAINNET }}

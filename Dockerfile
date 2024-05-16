@@ -1,5 +1,4 @@
 ARG GO_BUILD_IMAGE
-ARG NETWORK_TARGET
 
 # Use the Go build image as the builder
 FROM ${GO_BUILD_IMAGE} as builder
@@ -11,8 +10,11 @@ RUN apt-get update && apt-get install -y hwloc jq libhwloc-dev mesa-opencl-icd o
 WORKDIR /go/src/github.com/gh-efforts/extend
 COPY . .
 
-RUN make ffi-deps && go mod download
-RUN make $NETWORK_TARGET && cp ./extend /usr/bin/
+RUN make ffi-deps
+RUN go mod download
+
+ARG NETWORK_TARGET
+RUN make ${NETWORK_TARGET} && cp ./extend /usr/bin/
 
 # Use the buildpack-deps image for the final image
 FROM buildpack-deps:bookworm-curl

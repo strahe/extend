@@ -7,10 +7,10 @@ Filecoin sector 续期服务
 
 ```shell  
 # 编译主网程序  
-make  # 或者 docker-mainnet
+make  # 或者 make docker-mainnet
 
 # 编译测试网程序  
-make calibnet  # 或者 docker-calibnet
+make calibnet  # 或者 make docker-calibnet
 
 # 运行
 export FULLNODE_API_INFO="lotus api info"  # lotus api info, need sign permission
