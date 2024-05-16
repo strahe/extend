@@ -193,7 +193,7 @@ func (s *Service) processRequest(ctx context.Context) error {
 }
 
 func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time,
-	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors uint, dryRun bool) (*Request, error) {
+	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors int, dryRun bool) (*Request, error) {
 	if extension == nil && newExpiration == nil {
 		return nil, fmt.Errorf("either extension or new_expiration must be set")
 	}
@@ -229,7 +229,7 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get addressed sectors max: %w", err)
 	}
-	if int(maxSectors) > sectorsMax {
+	if maxSectors > sectorsMax {
 		return nil, fmt.Errorf("max sectors must be less than %d", sectorsMax)
 	}
 
@@ -261,7 +261,7 @@ func (s *Service) getRequest(_ context.Context, id uint) (*Request, error) {
 
 func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi.ChainEpoch,
 	extension *abi.ChainEpoch, newExpiration *abi.ChainEpoch, tolerance abi.ChainEpoch,
-	maxSectors uint, dryRun bool) ([]*Message, []*PseudoExtendSectorExpirationParams, error) {
+	maxSectors int, dryRun bool) ([]*Message, []*PseudoExtendSectorExpirationParams, error) {
 
 	if extension == nil && newExpiration == nil {
 		return nil, nil, fmt.Errorf("either extension or new expiration must be set")
@@ -286,7 +286,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 
 	addrSectors := sectorsMax
 	if maxSectors != 0 {
-		addrSectors = int(maxSectors)
+		addrSectors = maxSectors
 		if addrSectors > sectorsMax {
 			return nil, nil, fmt.Errorf("the specified max-sectors exceeds the maximum limit")
 		}

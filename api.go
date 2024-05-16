@@ -42,7 +42,7 @@ type createRequestArgs struct {
 	Extension     *abi.ChainEpoch `json:"extension"`      // extension to set
 	NewExpiration *abi.ChainEpoch `json:"new_expiration"` // new expiration to set
 	Tolerance     *abi.ChainEpoch `json:"tolerance"`      // tolerance for expiration
-	MaxSectors    uint            `json:"max_sectors"`    // max sectors to include in a single message
+	MaxSectors    *int            `json:"max_sectors"`    // max sectors to include in a single message
 	DryRun        bool            `json:"dry_run"`
 }
 
@@ -67,8 +67,19 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var maxSectors int
+	if args.MaxSectors == nil {
+		maxSectors = 500 // default value
+	} else {
+		maxSectors = *args.MaxSectors
+	}
+	if maxSectors < 0 {
+		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("max_sectors must be greater than 0"))
+		return
+	}
+
 	req, err := a.srv.createRequest(r.Context(), args.Miner, args.From, args.To,
-		args.Extension, args.NewExpiration, args.Tolerance, args.MaxSectors, args.DryRun)
+		args.Extension, args.NewExpiration, args.Tolerance, maxSectors, args.DryRun)
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return
