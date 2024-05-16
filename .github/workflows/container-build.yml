@@ -64,7 +64,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=$${{ env.NETWORK_TARGET_CALIBNET }}
+            NETWORK_TARGET=${{ env.NETWORK_TARGET_CALIBNET }}
 
       - name: Extract metadata for mainnet
         id: meta-for-mainnet
@@ -90,4 +90,4 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=$${{ env.NETWORK_TARGET_MAINNET }}
+            NETWORK_TARGET=${{ env.NETWORK_TARGET_MAINNET }}
