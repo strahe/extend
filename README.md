@@ -7,12 +7,13 @@ Filecoin sector 续期服务
 
 ```shell  
 # 编译主网程序  
-make  
-  
+make  # 或者 docker-mainnet
+
 # 编译测试网程序  
-make calibnet  
-  
-# 运行  
+make calibnet  # 或者 docker-calibnet
+
+# 运行
+export FULLNODE_API_INFO="lotus api info"  # lotus api info, need sign permission
 ./extend run   
 OPTIONS:  
  --listen value  specify the address to listen on (default: "127.0.0.1:8000")
