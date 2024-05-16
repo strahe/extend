@@ -160,7 +160,8 @@ func (s *Service) processRequest(ctx context.Context) error {
 
 	start := time.Now()
 	messages, dryRuns, err := s.extend(ctx, request.Miner.Address,
-		fromEpoch, toEpoch, request.Extension, request.NewExpiration, request.Tolerance, request.DryRun)
+		fromEpoch, toEpoch, request.Extension, request.NewExpiration,
+		request.Tolerance, request.MaxSectors, request.DryRun)
 	if err != nil {
 		log.Errorf("processing request %d failed: %s, took: %s", request.ID, err, time.Since(start))
 		request.Status = RequestStatusFailed
@@ -191,7 +192,8 @@ func (s *Service) processRequest(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time, extension, newExpiration, tolerance *abi.ChainEpoch, dryRun bool) (*Request, error) {
+func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time,
+	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors uint, dryRun bool) (*Request, error) {
 	if extension == nil && newExpiration == nil {
 		return nil, fmt.Errorf("either extension or new_expiration must be set")
 	}
@@ -219,6 +221,18 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 		}
 	}
 
+	nv, err := s.api.StateNetworkVersion(ctx, types.EmptyTSK)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network version: %w", err)
+	}
+	sectorsMax, err := policy.GetAddressedSectorsMax(nv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get addressed sectors max: %w", err)
+	}
+	if int(maxSectors) > sectorsMax {
+		return nil, fmt.Errorf("max sectors must be less than %d", sectorsMax)
+	}
+
 	request := &Request{
 		Miner:         Address{minerAddr},
 		From:          from,
@@ -227,6 +241,7 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 		NewExpiration: newExpiration,
 		Tolerance:     tol,
 		Status:        RequestStatusCreated,
+		MaxSectors:    maxSectors,
 		DryRun:        dryRun,
 	}
 
@@ -245,7 +260,8 @@ func (s *Service) getRequest(_ context.Context, id uint) (*Request, error) {
 }
 
 func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi.ChainEpoch,
-	extension *abi.ChainEpoch, newExpiration *abi.ChainEpoch, tolerance abi.ChainEpoch, dryRun bool) ([]*Message, []*PseudoExtendSectorExpirationParams, error) {
+	extension *abi.ChainEpoch, newExpiration *abi.ChainEpoch, tolerance abi.ChainEpoch,
+	maxSectors uint, dryRun bool) ([]*Message, []*PseudoExtendSectorExpirationParams, error) {
 
 	if extension == nil && newExpiration == nil {
 		return nil, nil, fmt.Errorf("either extension or new expiration must be set")
@@ -267,6 +283,15 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get addressed sectors max: %w", err)
 	}
+
+	addrSectors := sectorsMax
+	if maxSectors != 0 {
+		addrSectors = int(maxSectors)
+		if addrSectors > sectorsMax {
+			return nil, nil, fmt.Errorf("the specified max-sectors exceeds the maximum limit")
+		}
+	}
+
 	time1 := time.Now()
 	activeSet, err := warpActiveSectors(ctx, s.api, addr, false) // only for debug, do not cache in production
 	if err != nil {
@@ -449,7 +474,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 			sectorsInDecl := int(sectorsWithoutClaimsCount) + len(sectorsWithClaims)
 			scount += sectorsInDecl
 
-			if scount > sectorsMax || len(p.Extensions) >= declMax {
+			if scount > addrSectors || len(p.Extensions) >= declMax {
 				params = append(params, p)
 				p = miner.ExtendSectorExpiration2Params{}
 				scount = sectorsInDecl

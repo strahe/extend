@@ -49,26 +49,28 @@ Authorization:  Bearer  <token>
 创建一个续期请求
 #### 请求参数
 
-| 参数名            | 值                         | 是否必须 | 说明                                                            |  
-|----------------|---------------------------|------|---------------------------------------------------------------|  
-| miner          | f01234                    | 是    | 节点名字                                                          |  
-| from           | 2024-05-12T07:34:47+00:00 | 是    | sector到期范围的开始时间,RFC3339格式，表明续期这个范围的sector                     |  
-| to             | 2024-05-13T07:34:47+00:00 | 是    | sector到期的结束时间,RFC3339格式，表明续期这个范围的sector                       |  
-| extension      | 20160                     | 否    | 续期的Epoch数量，即在原有效期的基础上追加对应的高度                                  |  
-| new_expiration | 3212223                   | 否    | 不管之前的有效期是多少，统一续期到指定的高度，如果设置了这个值，extension将被忽略                 |  
-| tolerance      | 20160，7天，默认值              | 否    | 续期公差，精度，将到期时间相近的sector聚合成相同的到期时间，减少消息大小，降低gas, 且最低续期时间不能低于这个值 |
-| dry_run        | false，默认                  | 否    | 是否是测试，如果是测试，不会真正执行续期操作，只会做一些检查                                |  
+| 参数名            | 值                         | 是否必须 | 说明                                                                                       |  
+|----------------|---------------------------|------|------------------------------------------------------------------------------------------|  
+| miner          | f01234                    | 是    | 节点名字                                                                                     |  
+| from           | 2024-05-12T07:34:47+00:00 | 是    | sector到期范围的开始时间,RFC3339格式，表明续期这个范围的sector                                                |  
+| to             | 2024-05-13T07:34:47+00:00 | 是    | sector到期的结束时间,RFC3339格式，表明续期这个范围的sector                                                  |  
+| extension      | 20160                     | 否    | 续期的Epoch数量，即在原有效期的基础上追加对应的高度                                                             |  
+| new_expiration | 3212223                   | 否    | 不管之前的有效期是多少，统一续期到指定的高度，如果设置了这个值，extension将被忽略                                            |  
+| tolerance      | 20160，7天，默认值              | 否    | 续期公差，精度，将到期时间相近的sector聚合成相同的到期时间，减少消息大小，降低gas, 且最低续期时间不能低于这个值， 使用new_expiration时，这个值会被忽略 |
+| max_sectors    | 500, 默认值                  | 否    | 单条消息允许包含的最大sector数量，最大25000, 并非严格限制，最小统计单位是deadline                                      |
+| dry_run        | false，默认                  | 否    | 是否是测试，如果是测试，不会真正执行续期操作，只会做一些检查                                                           |  
 
 #### 请求示例
 ```json  
 {  
- "miner": "f01234", 
- "from": "2024-05-12T07:34:47+00:00", 
- "to": "2024-05-13T07:34:47+00:00", 
- "extension": 20160, 
- "new_expiration": 3212223, 
- "tolerance": 20160,
- "dry_run": false
+    "miner": "f01234", 
+    "from": "2024-05-12T07:34:47+00:00", 
+    "to": "2024-05-13T07:34:47+00:00", 
+    "extension": 20160, 
+    "new_expiration": 3212223, 
+    "tolerance": 20160, 
+    "max_sectors": 500,
+    "dry_run": false
  }  
 ```  
 
@@ -80,6 +82,7 @@ Authorization:  Bearer  <token>
 | from           | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始时间，创建时指定的参数                  |  
 | to             | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                  |  
 | new_expiration | null                                                  | 新的过期时间，创建时指定的参数                           |  
+| max_sectors    | 500                                                   | 单条消息允许包含的最大sector数量，创建时指定的参数              |
 | messages       | null                                                  | 续期上链的消息，array                             |  
 | tolerance      | 20160                                                 | 续期公差，创建时指定的参数                             |
 | miner          | "t017387"                                             | 矿工                                        |  
@@ -95,14 +98,15 @@ Authorization:  Bearer  <token>
 #### 返回示例
 ```json  
 {  
- "data": { 
+  "data": { 
     "confirmed_at": null, 
     "created_at": "2024-05-11T13:39:40.74831759+08:00", 
     "dry_run": true, 
     "dry_run_result": "", 
     "error": "failed to get active sector set: RPCConnectionError", 
     "extension": 21000, 
-    "tolerance": 20160,
+    "tolerance": 20160, 
+    "max_sectors": 500,
     "from": "2024-05-12T07:34:47Z", 
     "id": 11, 
     "messages": null, 
@@ -112,7 +116,7 @@ Authorization:  Bearer  <token>
     "to": "2024-05-13T07:34:47Z", 
     "took": 526.841994321, 
     "updated_at": "2024-05-11T13:40:16.237069667+08:00"
- }
+  }
 }  
 ``` 
 
@@ -136,6 +140,7 @@ Authorization:  Bearer  <token>
     ],
     "miner": "f017387",
     "new_expiration": null,
+    "max_sectors": 500,
     "status": "pending",
     "to": "2024-05-14T15:18:47+08:00",
     "took": 526.841994321,

@@ -33,6 +33,7 @@ type Request struct {
 	Extension     *abi.ChainEpoch `json:"extension"`
 	NewExpiration *abi.ChainEpoch `json:"new_expiration"`
 	Tolerance     abi.ChainEpoch  `json:"tolerance"`
+	MaxSectors    uint            `json:"max_sectors"`
 	Status        RequestStatus   `gorm:"index" json:"status"`
 	Messages      []*Message      `json:"messages"`
 	Error         string          `json:"error"`
