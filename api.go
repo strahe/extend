@@ -56,6 +56,10 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return
 	}
+	if args.Miner.Empty() {
+		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("miner address is empty"))
+		return
+	}
 	if args.Extension == nil && args.NewExpiration == nil {
 		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("either extension or new_expiration must be set"))
 		return
