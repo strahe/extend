@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
-	lcli "github.com/filecoin-project/lotus/cli"
-	"github.com/filecoin-project/lotus/node"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/mitchellh/go-homedir"
-	"github.com/urfave/cli/v2"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	lcli "github.com/filecoin-project/lotus/cli"
+	"github.com/filecoin-project/lotus/node"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/mitchellh/go-homedir"
+	"github.com/urfave/cli/v2"
 )
 
 var authCmd = &cli.Command{

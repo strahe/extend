@@ -159,32 +159,41 @@ func (s *Service) processRequest(ctx context.Context) error {
 	toEpoch := TimestampToEpoch(request.To)
 
 	start := time.Now()
-	messages, dryRuns, err := s.extend(ctx, request.Miner.Address,
-		fromEpoch, toEpoch, request.Extension, request.NewExpiration,
-		request.Tolerance, request.MaxSectors, request.DryRun)
-	if err != nil {
-		log.Errorf("processing request %d failed: %s, took: %s", request.ID, err, time.Since(start))
-		request.Status = RequestStatusFailed
-		request.Error = err.Error()
-	} else {
-		if len(messages) == 0 && len(dryRuns) == 0 {
+	messages, dryRuns, terr := s.extend(ctx, request.Miner.Address, fromEpoch, toEpoch,
+		request.Extension, request.NewExpiration, request.Tolerance,
+		request.MaxSectors, request.DryRun)
+
+	if terr != nil {
+		request.Error = terr.Error()
+	}
+	if len(messages)+len(dryRuns) == 0 {
+		if terr == nil {
 			request.Status = RequestStatusSuccess // no sectors need to extend
 		} else {
-			if request.DryRun {
-				request.Status = RequestStatusSuccess
-				b, err := json.MarshalIndent(dryRuns, "", "  ")
-				if err != nil {
-					log.Errorf("failed to marshal dry runs: %s", err)
-				} else {
-					request.DryRunResult = string(b)
-				}
-			} else {
-				request.Status = RequestStatusPending
-				request.Messages = messages
-			}
+			log.Errorf("processing request %d failed: %s, took: %s", request.ID, terr, time.Since(start))
+			request.Status = RequestStatusFailed
 		}
-		log.Infof("processed request %d, took: %s", request.ID, time.Since(start))
+	} else {
+		if request.DryRun {
+			b, err := json.MarshalIndent(dryRuns, "", "  ")
+			if err != nil {
+				log.Errorf("failed to marshal dry runs: %s", err)
+			} else {
+				request.DryRunResult = string(b)
+			}
+			if terr == nil {
+				request.Status = RequestStatusSuccess
+			} else {
+				request.Status = RequestStatusPartfailed
+			}
+		} else {
+			// even if some messages are failed, we still make the request status to pending
+			// handle the failed messages in the message checker
+			request.Status = RequestStatusPending
+			request.Messages = messages
+		}
 	}
+	log.Infof("processing request %d, status: %s, took: %s", request.ID, request.Status, time.Since(start))
 	request.Took = time.Since(start).Seconds()
 	if err := s.db.Save(&request).Error; err != nil {
 		log.Errorf("failed to save request: %s", err)
@@ -507,12 +516,15 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	stotal := 0
 	var messages []*Message
 	var dryRuns []*PseudoExtendSectorExpirationParams
+	var errMsgs []string
+loopParams:
 	for i := range params {
 		scount := 0
 		for _, ext := range params[i].Extensions {
 			count, err := ext.Sectors.Count()
 			if err != nil {
-				return nil, nil, err
+				errMsgs = append(errMsgs, err.Error())
+				continue loopParams
 			}
 			scount += int(count)
 		}
@@ -522,7 +534,8 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		if dryRun {
 			pp, err := NewPseudoExtendParams(&params[i])
 			if err != nil {
-				return nil, nil, err
+				errMsgs = append(errMsgs, err.Error())
+				continue
 			}
 			dryRuns = append(dryRuns, pp)
 			continue
@@ -530,7 +543,8 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 
 		sp, aerr := actors.SerializeParams(&params[i])
 		if aerr != nil {
-			return nil, nil, fmt.Errorf("serializing params: %w", err)
+			errMsgs = append(errMsgs, fmt.Errorf("serializing params: %w", err).Error())
+			continue
 		}
 
 		smsg, err := s.api.MpoolPushMessage(ctx, &types.Message{
@@ -541,7 +555,8 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 			Params: sp,
 		}, nil)
 		if err != nil {
-			return nil, nil, fmt.Errorf("mpool push message: %w", err)
+			errMsgs = append(errMsgs, fmt.Errorf("mpool push message: %w", err).Error())
+			continue
 		}
 		log.Infow("pushed extend message", "cid", smsg.Cid(), "to", addr, "from", mi.Worker, "sectors", scount)
 		exts, err := NewExtension2FromParams(params[i])
@@ -556,7 +571,11 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		s.db.Create(msg)
 		messages = append(messages, msg)
 	}
-	return messages, dryRuns, nil
+	if len(errMsgs) == 0 {
+		return messages, dryRuns, nil
+	}
+	// join errors as one error
+	return messages, dryRuns, fmt.Errorf(strings.Join(errMsgs, ";"))
 }
 
 func (s *Service) checkMessage(ctx context.Context) error {
@@ -592,13 +611,26 @@ func (s *Service) checkMessage(ctx context.Context) error {
 		go s.watchMessage(ctx, msg.Cid.Cid)
 	}
 	if allOnChain {
+		request.ConfirmedAt = lo.ToPtr(time.Now())
 		if allSuccess {
-			request.Status = RequestStatusSuccess
-			request.ConfirmedAt = lo.ToPtr(time.Now())
-			log.Infof("request [%d] all messages on chain, status: %s", request.ID, request.Status)
+			if len(request.Error) == 0 {
+				request.Status = RequestStatusSuccess
+				log.Infof("request [%d] all messages on chain, status: %s", request.ID, request.Status)
+			} else {
+				request.Status = RequestStatusPartfailed
+				log.Infof("request [%d] all messages on chain, but got preceding error: %s", request.ID, request.Error)
+			}
 		} else {
-			request.Status = RequestStatusPartfailed
-			request.Error = strings.Join(errorMsgs, ",")
+			if len(errorMsgs) == len(request.Messages) {
+				// all failed
+				request.Status = RequestStatusFailed
+			} else {
+				request.Status = RequestStatusPartfailed
+			}
+			if len(request.Error) != 0 {
+				errorMsgs = append([]string{request.Error}, errorMsgs...)
+			}
+			request.Error = strings.Join(errorMsgs, ";")
 			log.Infof("request %d messages on chain, status: %s, failed: %d", request.ID, request.Status, len(errorMsgs))
 		}
 		if err := s.db.Save(&request).Error; err != nil {
@@ -685,11 +717,11 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 				for id, wm := range s.watchingMessages {
 					if time.Since(wm.started) > 5*time.Minute {
 						log.Warnw("message is pending too long", "id", id, "took", time.Since(wm.started))
-						if s.maxWait > 0 && time.Since(wm.started) > s.maxWait {
-							wm.Cancel()
-							if err := s.replaceMessage(ctx, wm.cid.Cid); err != nil {
-								log.Errorf("failed to replace message: %s", err)
-							}
+					}
+					if s.maxWait > 0 && time.Since(wm.started) > s.maxWait {
+						wm.Cancel()
+						if err := s.replaceMessage(ctx, wm.cid.Cid); err != nil {
+							log.Errorf("failed to replace message: %s", err)
 						}
 					}
 				}
