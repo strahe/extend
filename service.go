@@ -210,10 +210,6 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 		return nil, fmt.Errorf("to time must be greater than from time")
 	}
 
-	head, err := s.api.ChainHead(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get chain head: %w", err)
-	}
 	var tol = defaultTolerance
 	if tolerance != nil {
 		tol = *tolerance
@@ -225,9 +221,7 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 		}
 	}
 	if newExpiration != nil {
-		if *newExpiration-head.Height() < tol {
-			return nil, fmt.Errorf("new expiration must be greater than %d epochs from now", tolerance)
-		}
+		tol = 0
 	}
 
 	nv, err := s.api.StateNetworkVersion(ctx, types.EmptyTSK)
@@ -302,7 +296,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	}
 
 	time1 := time.Now()
-	activeSet, err := warpActiveSectors(ctx, s.api, addr, false) // only for debug, do not cache in production
+	activeSet, err := warpActiveSectors(ctx, s.api, addr, true) // only for debug, do not cache in production
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get active set: %w", err)
 	}
@@ -404,7 +398,6 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		}
 	}
 
-	time3 := time.Now()
 	verifregAct, err := s.api.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to lookup verifreg actor: %w", err)
@@ -432,78 +425,48 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	var cannotExtendSectors []abi.SectorNumber
 	p := miner.ExtendSectorExpiration2Params{}
 	scount := 0
+	d1 := 0
 	for l, exts := range extensions {
 		for newExp, numbers := range exts {
-			sectorsWithoutClaimsToExtend := bitfield.New()
-			var sectorsWithClaims []miner.SectorClaim
-			for _, sectorNumber := range numbers {
-				claimIdsToMaintain := make([]verifreg.ClaimId, 0)
-				claimIdsToDrop := make([]verifreg.ClaimId, 0)
-				cannotExtendSector := false
-				claimIds, ok := claimIdsBySector[sectorNumber]
-				// Nothing to check, add to ccSectors
-				if !ok {
-					sectorsWithoutClaimsToExtend.Set(uint64(sectorNumber))
-				} else {
-					for _, claimId := range claimIds {
-						claim, ok := claimsMap[claimId]
-						if !ok {
-							return nil, nil, fmt.Errorf("failed to find claim for claimId %d", claimId)
-						}
-						claimExpiration := claim.TermStart + claim.TermMax
-						// can be maintained in the extended sector
-						if claimExpiration > newExp {
-							claimIdsToMaintain = append(claimIdsToMaintain, claimId)
-						} else {
-							log.Infof("skipping sector %d because claim %d does not live long enough", sectorNumber, claimId)
-							cannotExtendSector = true
-							break
-						}
-					}
-					if cannotExtendSector {
-						cannotExtendSectors = append(cannotExtendSectors, sectorNumber)
-						continue
-					}
-
-					if len(claimIdsToMaintain)+len(claimIdsToDrop) != 0 {
-						sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
-							SectorNumber:   sectorNumber,
-							MaintainClaims: claimIdsToMaintain,
-							DropClaims:     claimIdsToDrop,
-						})
-					}
+			d1 += len(numbers)
+			log.Debugf("extending sectors for partition %d-%d, extend %d sectors to %d", l.Deadline, l.Partition, len(numbers), newExp)
+			for len(numbers) > addrSectors {
+				var currentNumbers []abi.SectorNumber
+				currentNumbers, numbers = numbers[:addrSectors], numbers[addrSectors:]
+				e2, ce, _, err := buildParams(l, newExp, currentNumbers, claimIdsBySector, claimsMap)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to build params: %w", err)
 				}
+				if len(ce) != 0 {
+					cannotExtendSectors = append(cannotExtendSectors, ce...)
+				}
+				p1 := miner.ExtendSectorExpiration2Params{}
+				p1.Extensions = append(p1.Extensions, *e2)
+				params = append(params, p1)
 			}
-
-			sectorsWithoutClaimsCount, err := sectorsWithoutClaimsToExtend.Count()
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to count cc sectors: %w", err)
+			if len(numbers) > 0 {
+				e2, ce, sectorsInDecl, err := buildParams(l, newExp, numbers, claimIdsBySector, claimsMap)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to build params: %w", err)
+				}
+				if len(ce) != 0 {
+					cannotExtendSectors = append(cannotExtendSectors, ce...)
+				}
+				scount += sectorsInDecl
+				if scount > addrSectors || len(p.Extensions) >= declMax {
+					params = append(params, p)
+					p = miner.ExtendSectorExpiration2Params{}
+					scount = sectorsInDecl
+				}
+				p.Extensions = append(p.Extensions, *e2)
 			}
-
-			sectorsInDecl := int(sectorsWithoutClaimsCount) + len(sectorsWithClaims)
-			scount += sectorsInDecl
-
-			if scount > addrSectors || len(p.Extensions) >= declMax {
-				params = append(params, p)
-				p = miner.ExtendSectorExpiration2Params{}
-				scount = sectorsInDecl
-			}
-
-			p.Extensions = append(p.Extensions, miner.ExpirationExtension2{
-				Deadline:          l.Deadline,
-				Partition:         l.Partition,
-				Sectors:           SectorNumsToBitfield(numbers),
-				SectorsWithClaims: sectorsWithClaims,
-				NewExpiration:     newExp,
-			})
 		}
 	}
+	log.Infof("total %d sectors to extend, %d cannot extend", d1, len(cannotExtendSectors))
 	// if we have any sectors, then one last append is needed here
 	if scount != 0 {
 		params = append(params, p)
 	}
-
-	log.Infof("found %d sectors to extend, took: %s", scount, time.Since(time3))
 	if len(params) == 0 {
 		log.Info("nothing to extend")
 		return nil, nil, nil
@@ -528,7 +491,7 @@ loopParams:
 			}
 			scount += int(count)
 		}
-		log.Infof("extending %d sectors", scount)
+		log.Infof("extending %d sectors in message %d", scount, i)
 		stotal += scount
 
 		if dryRun {
@@ -571,11 +534,73 @@ loopParams:
 		s.db.Create(msg)
 		messages = append(messages, msg)
 	}
+	if stotal != len(sectors) {
+		log.Warnw("not all sectors are build to extend", "total", len(sectors), "extended", stotal)
+	} else {
+		log.Infof("all sectors are build to extend: %d", stotal)
+	}
 	if len(errMsgs) == 0 {
 		return messages, dryRuns, nil
 	}
 	// join errors as one error
 	return messages, dryRuns, fmt.Errorf(strings.Join(errMsgs, ";"))
+}
+
+func buildParams(l miner.SectorLocation, newExp abi.ChainEpoch, numbers []abi.SectorNumber, claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId, claimsMap map[verifreg.ClaimId]verifreg.Claim) (*miner.ExpirationExtension2, []abi.SectorNumber, int, error) {
+	sectorsWithoutClaimsToExtend := bitfield.New()
+	var sectorsWithClaims []miner.SectorClaim
+	var cannotExtendSectors []abi.SectorNumber
+	for _, sectorNumber := range numbers {
+		claimIdsToMaintain := make([]verifreg.ClaimId, 0)
+		claimIdsToDrop := make([]verifreg.ClaimId, 0)
+		cannotExtendSector := false
+		claimIds, ok := claimIdsBySector[sectorNumber]
+		// Nothing to check, add to ccSectors
+		if !ok {
+			sectorsWithoutClaimsToExtend.Set(uint64(sectorNumber))
+		} else {
+			for _, claimId := range claimIds {
+				claim, ok := claimsMap[claimId]
+				if !ok {
+					return nil, nil, 0, fmt.Errorf("failed to find claim for claimId %d", claimId)
+				}
+				claimExpiration := claim.TermStart + claim.TermMax
+				// can be maintained in the extended sector
+				if claimExpiration > newExp {
+					claimIdsToMaintain = append(claimIdsToMaintain, claimId)
+				} else {
+					log.Infof("skipping sector %d because claim %d does not live long enough", sectorNumber, claimId)
+					cannotExtendSector = true
+					break
+				}
+			}
+			if cannotExtendSector {
+				cannotExtendSectors = append(cannotExtendSectors, sectorNumber)
+				continue
+			}
+
+			if len(claimIdsToMaintain)+len(claimIdsToDrop) != 0 {
+				sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
+					SectorNumber:   sectorNumber,
+					MaintainClaims: claimIdsToMaintain,
+					DropClaims:     claimIdsToDrop,
+				})
+			}
+		}
+	}
+	sectorsWithoutClaimsCount, err := sectorsWithoutClaimsToExtend.Count()
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to count cc sectors: %w", err)
+	}
+	sectorsInDecl := int(sectorsWithoutClaimsCount) + len(sectorsWithClaims)
+	e2 := miner.ExpirationExtension2{
+		Deadline:          l.Deadline,
+		Partition:         l.Partition,
+		Sectors:           SectorNumsToBitfield(numbers),
+		SectorsWithClaims: sectorsWithClaims,
+		NewExpiration:     newExp,
+	}
+	return &e2, cannotExtendSectors, sectorsInDecl, nil
 }
 
 func (s *Service) checkMessage(ctx context.Context) error {
