@@ -210,6 +210,10 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 		return nil, fmt.Errorf("to time must be greater than from time")
 	}
 
+	if from.Before(time.Now().Add(time.Hour)) {
+		return nil, fmt.Errorf("from time must be at least 1 hour in the future")
+	}
+
 	var tol = defaultTolerance
 	if tolerance != nil {
 		tol = *tolerance
