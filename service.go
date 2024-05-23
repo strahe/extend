@@ -296,7 +296,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	}
 
 	time1 := time.Now()
-	activeSet, err := warpActiveSectors(ctx, s.api, addr, true) // only for debug, do not cache in production
+	activeSet, err := warpActiveSectors(ctx, s.api, addr, false) // only for debug, do not cache in production
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get active set: %w", err)
 	}
