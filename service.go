@@ -300,7 +300,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	}
 
 	time1 := time.Now()
-	activeSet, err := warpActiveSectors(ctx, s.api, addr, false) // only for debug, do not cache in production
+	activeSet, err := warpActiveSectors(ctx, s.api, addr, lo.If(os.Getenv("CACHE_ACTIVE_SECTORS") == "1", true).Else(false)) // only for debug, do not cache in production
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get active set: %w", err)
 	}
@@ -844,7 +844,6 @@ func (s *Service) replaceMessage(ctx context.Context, id uint) error {
 		if err := tx.Delete(&m).Error; err != nil {
 			return err
 		}
-
 		newID, err := s.api.MpoolPush(ctx, smsg)
 		if err != nil {
 			return fmt.Errorf("failed to push new message to mempool: %w", err)
@@ -977,6 +976,7 @@ func warpActiveSectors(ctx context.Context, api API, addr address.Address, cache
 	if cache {
 		v, err := activeSetFromCache(addr)
 		if err == nil {
+			log.Warn("using cached active set")
 			return v, nil
 		}
 	}
