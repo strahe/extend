@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/filecoin-project/lotus/build"
+
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/node"
 	logging "github.com/ipfs/go-log/v2"
@@ -149,11 +151,19 @@ var runCmd = &cli.Command{
 		genesisTime := time.Unix(int64(gtp.MinTimestamp()), 0)
 		SetupGenesisTime(genesisTime)
 
+		nn, err := fullApi.StateNetworkName(ctx)
+		if err != nil {
+			return err
+		}
+		if err := build.UseNetworkBundle(string(nn)); err != nil {
+			return err
+		}
 		head, err := fullApi.ChainHead(ctx)
 		if err != nil {
 			return err
 		}
-		log.Infof("connected to lotus node; current head is %s, genesis time is: %s", head.Height(), genesisTime)
+		log.Infow("connected to lotus node",
+			"network", nn, "head", head.Height(), "genesis", genesisTime)
 
 		var secret []byte
 		var authStatus = "disabled"

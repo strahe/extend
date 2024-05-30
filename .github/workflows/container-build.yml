@@ -12,8 +12,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   GO_BUILD_IMAGE: golang:1.22.3
-  NETWORK_TARGET_MAINNET: mainnet
-  NETWORK_TARGET_CALIBNET: calibnet
 
 jobs:
   build:
@@ -40,54 +38,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for calibnet
-        id: meta-for-calibnet
+      - name: Extract metadata
+        id: meta
         uses: docker/metadata-action@v4
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern={{raw}},prefix=calibnet-
-            type=semver,pattern={{major}}.{{minor}},prefix=calibnet-
-            type=semver,pattern={{major}},prefix=calibnet-
-            type=ref,event=branch,prefix=calibnet-
+            type=semver,pattern={{raw}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
 
-      - name: Build and push Docker for calibnet
+      - name: Build and push Docker
         uses: docker/build-push-action@v5
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-for-calibnet.outputs.tags }}
-          labels: ${{ steps.meta-for-calibnet.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=${{ env.NETWORK_TARGET_CALIBNET }}
-
-      - name: Extract metadata for mainnet
-        id: meta-for-mainnet
-        uses: docker/metadata-action@v4
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: |
-            latest=true
-          tags: |
-            type=semver,pattern={{raw}},prefix=mainnet-
-            type=semver,pattern={{major}}.{{minor}},prefix=mainnet-
-            type=semver,pattern={{major}},prefix=mainnet-
-            type=ref,event=branch,prefix=mainnet-
-
-      - name: Build and push Docker for mainnet
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-for-mainnet.outputs.tags }}
-          labels: ${{ steps.meta-for-mainnet.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            GO_BUILD_IMAGE=${{ env.GO_BUILD_IMAGE }}
-            NETWORK_TARGET=${{ env.NETWORK_TARGET_MAINNET }}

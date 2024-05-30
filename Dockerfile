@@ -13,8 +13,7 @@ COPY . .
 RUN make ffi-deps
 RUN go mod download
 
-ARG NETWORK_TARGET
-RUN make ${NETWORK_TARGET} && cp ./extend /usr/bin/
+RUN make && cp ./extend /usr/bin/
 
 # Use the buildpack-deps image for the final image
 FROM buildpack-deps:bookworm-curl
