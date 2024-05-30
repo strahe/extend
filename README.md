@@ -14,6 +14,7 @@ make calibnet  # 或者 make docker-calibnet
 
 # 运行
 export FULLNODE_API_INFO="lotus api info"  # lotus api info, need sign permission
+
 ./extend run   
 OPTIONS:  
  --listen value  specify the address to listen on (default: "127.0.0.1:8000")
@@ -148,6 +149,19 @@ Authorization:  Bearer  <token>
   }
 }
  ```
+
+### POST /requests/{:id}/speedup
+加速一个续期请求，将一个pending状态的请求未上链的所有消息重新预估gas后上链.
+> [!WARNING]
+> 只有pending状态的请求才能加速，其他状态的请求不能加速.
+> 加速返回success，并不能保证消息一定会上链，等待一段时间后再次查询请求状态，可多次尝试.
+
+#### 返回示例
+ ```json
+ {
+  "data": "success"
+}
+```
 
 ### 使用限制
 

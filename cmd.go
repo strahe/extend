@@ -188,6 +188,15 @@ var runCmd = &cli.Command{
 	},
 }
 
+var testCmd = &cli.Command{
+	Name:   "test",
+	Usage:  "test some stuff in the context of the extend service",
+	Hidden: true,
+	Action: func(cctx *cli.Context) error {
+		return nil
+	},
+}
+
 func MonitorShutdown(handlers ...node.ShutdownHandler) <-chan struct{} {
 	sigCh := make(chan os.Signal, 2)
 	out := make(chan struct{})

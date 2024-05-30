@@ -300,7 +300,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	}
 
 	time1 := time.Now()
-	activeSet, err := warpActiveSectors(ctx, s.api, addr, false) // only for debug, do not cache in production
+	activeSet, err := warpActiveSectors(ctx, s.api, addr, lo.If(os.Getenv("CACHE_ACTIVE_SECTORS") == "1", true).Else(false)) // only for debug, do not cache in production
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get active set: %w", err)
 	}
@@ -607,6 +607,29 @@ func buildParams(l miner.SectorLocation, newExp abi.ChainEpoch, numbers []abi.Se
 	return &e2, cannotExtendSectors, sectorsInDecl, nil
 }
 
+func (s *Service) speedupRequest(ctx context.Context, id uint) error {
+	var request Request
+	if err := s.db.Preload(clause.Associations).First(&request, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("request not found")
+		}
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+	if request.Status != RequestStatusPending {
+		return fmt.Errorf("request is not pending")
+	}
+	for _, msg := range request.Messages {
+		if msg.OnChain {
+			continue
+		}
+		// todo: need order by nonce?
+		if err := s.replaceMessage(ctx, msg.ID); err != nil {
+			return fmt.Errorf("failed to replace message: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *Service) checkMessage(ctx context.Context) error {
 	var request Request
 	if err := s.db.Preload("Messages").First(&request, "status = ?", RequestStatusPending).Error; err != nil {
@@ -631,12 +654,11 @@ func (s *Service) checkMessage(ctx context.Context) error {
 			continue
 		}
 		allOnChain = false
-		s.mux.Lock()
-		if _, ok := s.watchingMessages[msg.ID]; ok {
-			s.mux.Unlock()
+
+		if wm := s.getWatchingMessage(msg.ID); wm != nil {
+			// still watching
 			continue
 		}
-		s.mux.Unlock()
 		go s.watchMessage(ctx, msg.Cid.Cid)
 	}
 	if allOnChain {
@@ -670,6 +692,9 @@ func (s *Service) checkMessage(ctx context.Context) error {
 }
 
 func (s *Service) watchMessage(ctx context.Context, id cid.Cid) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var msg Message
 	if err := s.db.First(&msg, "cid = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -679,21 +704,14 @@ func (s *Service) watchMessage(ctx context.Context, id cid.Cid) {
 		}
 		return
 	}
-	s.mux.Lock()
-	if _, ok := s.watchingMessages[msg.ID]; ok {
-		s.mux.Unlock()
+
+	if wm := s.getWatchingMessage(msg.ID); wm == nil {
 		log.Warnf("message %d is already watching", msg.ID)
 		return
 	}
 	wm := newWatchMessage(&msg)
-	s.watchingMessages[msg.ID] = wm
-	s.mux.Unlock()
-
-	defer func() {
-		s.mux.Lock()
-		delete(s.watchingMessages, msg.ID)
-		s.mux.Unlock()
-	}()
+	s.putWatchingMessage(msg.ID, wm)
+	defer s.removeWatchingMessage(msg.ID)
 
 	log.Infow("watching message", "id", msg.ID, "request", msg.RequestID, "cid", id)
 
@@ -748,8 +766,7 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 						log.Warnw("message is pending too long", "id", id, "took", time.Since(wm.started))
 					}
 					if s.maxWait > 0 && time.Since(wm.started) > s.maxWait {
-						wm.Cancel()
-						if err := s.replaceMessage(ctx, wm.cid.Cid); err != nil {
+						if err := s.replaceMessage(ctx, wm.id); err != nil {
 							log.Errorf("failed to replace message: %s", err)
 						}
 					}
@@ -759,19 +776,19 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 	}
 }
 
-func (s *Service) replaceMessage(ctx context.Context, id cid.Cid) error {
+func (s *Service) replaceMessage(ctx context.Context, id uint) error {
 	var m Message
-	if err := s.db.Preload(clause.Associations).First(&m, "cid = ?", id).Error; err != nil {
+	if err := s.db.Preload(clause.Associations).First(&m, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("message not found: %s", id)
+			return fmt.Errorf("message id not found in db: %d", id)
 		}
 		return fmt.Errorf("failed to get request: %w", err)
 	}
 
-	log.Infow("replacing message", "id", m.ID, "cid", id)
+	log.Infow("replacing message", "id", id, "cid", m.Cid.String())
 
 	// get the message from the chain
-	cm, err := s.api.ChainGetMessage(ctx, id)
+	cm, err := s.api.ChainGetMessage(ctx, m.Cid.Cid)
 	if err != nil {
 		return fmt.Errorf("could not find referenced message: %w", err)
 	}
@@ -823,26 +840,50 @@ func (s *Service) replaceMessage(ctx context.Context, id cid.Cid) error {
 		return fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	newID, err := s.api.MpoolPush(ctx, smsg)
-	if err != nil {
-		return fmt.Errorf("failed to push new message to mempool: %w", err)
-	}
-
-	newMsg := &Message{
-		Cid:        CID{newID},
-		Extensions: m.Extensions,
-		RequestID:  m.RequestID,
-	}
-
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(newMsg).Error; err != nil {
-			return err
-		}
 		if err := tx.Delete(&m).Error; err != nil {
 			return err
 		}
+		newID, err := s.api.MpoolPush(ctx, smsg)
+		if err != nil {
+			return fmt.Errorf("failed to push new message to mempool: %w", err)
+		}
+
+		newMsg := &Message{
+			Cid:        CID{newID},
+			Extensions: m.Extensions,
+			RequestID:  m.RequestID,
+		}
+
+		if err := tx.Create(newMsg).Error; err != nil {
+			return err
+		}
+		log.Infow("replaced message", "old id", id, "new id", newMsg.ID, "old cid", m.Cid, "new cid", newID)
+
+		// remove old watching message
+		if owm := s.getWatchingMessage(id); owm != nil {
+			owm.Cancel()
+		}
 		return nil
 	})
+}
+
+func (s *Service) getWatchingMessage(id uint) *watchMessage {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	return s.watchingMessages[id]
+}
+
+func (s *Service) putWatchingMessage(id uint, wm *watchMessage) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.watchingMessages[id] = wm
+}
+
+func (s *Service) removeWatchingMessage(id uint) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	delete(s.watchingMessages, id)
 }
 
 func SectorNumsToBitfield(sectors []abi.SectorNumber) bitfield.BitField {
@@ -935,6 +976,7 @@ func warpActiveSectors(ctx context.Context, api API, addr address.Address, cache
 	if cache {
 		v, err := activeSetFromCache(addr)
 		if err == nil {
+			log.Warn("using cached active set")
 			return v, nil
 		}
 	}
