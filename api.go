@@ -20,6 +20,7 @@ func NewRouter(srv *Service, secret []byte) http.Handler {
 	impl := newImplAPI(srv)
 	r.HandleFunc("/requests", impl.create).Methods("POST")
 	r.HandleFunc("/requests/{id:[0-9]+}", impl.get).Methods("GET")
+	r.HandleFunc("/requests/{id:[0-9]+}/speedup", impl.speedup).Methods("POST")
 	return r
 }
 
@@ -108,6 +109,22 @@ func (a *implAPI) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	warpResponse(w, http.StatusOK, req, nil)
+}
+
+func (a *implAPI) speedup(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("invalid id: %s", vars["id"]))
+		return
+	}
+
+	err = a.srv.speedupRequest(r.Context(), uint(id))
+	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	warpResponse(w, http.StatusOK, "success", nil)
 }
 
 type response struct {
