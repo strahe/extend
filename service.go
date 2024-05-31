@@ -29,7 +29,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/config"
-	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -65,9 +64,8 @@ type Service struct {
 	adtStore         adt.Store
 	db               *gorm.DB
 	maxWait          time.Duration
-	mux              sync.Mutex
 	wg               sync.WaitGroup
-	watchingMessages map[uint]*watchMessage
+	watchingMessages *SafeMap[uint, *watchMessage]
 	shutdownFunc     context.CancelFunc
 }
 
@@ -81,7 +79,7 @@ func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration
 		db:               db,
 		api:              api,
 		adtStore:         adtStore,
-		watchingMessages: map[uint]*watchMessage{},
+		watchingMessages: NewSafeMap[uint, *watchMessage](),
 		maxWait:          maxWait,
 		shutdownFunc: func() {
 			cancel()
@@ -96,12 +94,14 @@ func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration
 
 func (s *Service) Shutdown(_ context.Context) error {
 	log.Infof("waiting for services to shutdown")
-	s.mux.Lock()
-	for _, wm := range s.watchingMessages {
-		log.Debugf("cancelling message [%d]%s", wm.id, wm.cid)
+
+	if err := s.watchingMessages.Range(func(k uint, wm *watchMessage) error {
 		wm.Cancel()
+		return nil
+	}); err != nil {
+		log.Errorf("failed to cancel watching message: %s", err)
 	}
-	s.mux.Unlock()
+
 	s.shutdownFunc()
 	s.wg.Wait()
 	return nil
@@ -481,6 +481,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		return nil, nil, fmt.Errorf("getting miner info: %w", err)
 	}
 	stotal := 0
+	published := 0
 	var messages []*Message
 	var dryRuns []*PseudoExtendSectorExpirationParams
 	var errMsgs []string
@@ -505,6 +506,7 @@ loopParams:
 				continue
 			}
 			dryRuns = append(dryRuns, pp)
+			published += scount
 			continue
 		}
 
@@ -522,9 +524,11 @@ loopParams:
 			Params: sp,
 		}, nil)
 		if err != nil {
+			log.Errorf("failed to push message: %s", err)
 			errMsgs = append(errMsgs, fmt.Errorf("mpool push message: %w", err).Error())
 			continue
 		}
+		published += scount
 		log.Infow("pushed extend message", "cid", smsg.Cid(), "to", addr, "from", mi.Worker, "sectors", scount)
 		exts, err := NewExtension2FromParams(params[i])
 		if err != nil {
@@ -542,6 +546,11 @@ loopParams:
 		log.Warnw("not all sectors are build to extend", "total", len(sectors), "extended", stotal)
 	} else {
 		log.Infof("all sectors are build to extend: %d", stotal)
+	}
+	if published != len(sectors) {
+		log.Warnw("not all sectors are published", "total", len(sectors), "published", published)
+	} else {
+		log.Infof("all sectors are published: %d", published)
 	}
 	if len(errMsgs) == 0 {
 		return messages, dryRuns, nil
@@ -638,8 +647,8 @@ func (s *Service) checkMessage(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to get request: %w", err)
 	}
-	log.Infow("check request messages", "id", request.ID,
-		"miner", request.Miner.Address, "messages", request.MessageCids())
+	log.Debugw("check request messages", "id", request.ID,
+		"miner", request.Miner.Address, "message count", len(request.MessageCids()))
 
 	var allOnChain = true
 	var allSuccess = true
@@ -655,11 +664,11 @@ func (s *Service) checkMessage(ctx context.Context) error {
 		}
 		allOnChain = false
 
-		if wm := s.getWatchingMessage(msg.ID); wm != nil {
+		if s.watchingMessages.Has(msg.ID) {
 			// still watching
 			continue
 		}
-		go s.watchMessage(ctx, msg.Cid.Cid)
+		go s.watchMessage(ctx, msg.ID)
 	}
 	if allOnChain {
 		request.ConfirmedAt = lo.ToPtr(time.Now())
@@ -691,35 +700,35 @@ func (s *Service) checkMessage(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) watchMessage(ctx context.Context, id cid.Cid) {
+func (s *Service) watchMessage(ctx context.Context, id uint) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var msg Message
-	if err := s.db.First(&msg, "cid = ?", id.String()).Error; err != nil {
+	if err := s.db.First(&msg, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Errorf("message not found: %s", id)
+			log.Errorf("message not found: %d", id)
 		} else {
 			log.Errorf("failed to get message: %s", err)
 		}
 		return
 	}
 
-	if wm := s.getWatchingMessage(msg.ID); wm == nil {
-		log.Warnf("message %d is already watching", msg.ID)
+	if s.watchingMessages.Has(msg.ID) {
+		log.Warnf("message [%d]%s is already watching", msg.ID, msg.Cid.String())
 		return
 	}
 	wm := newWatchMessage(&msg)
-	s.putWatchingMessage(msg.ID, wm)
-	defer s.removeWatchingMessage(msg.ID)
+	s.watchingMessages.Set(msg.ID, wm)
+	defer s.watchingMessages.Delete(msg.ID)
 
-	log.Infow("watching message", "id", msg.ID, "request", msg.RequestID, "cid", id)
+	log.Infow("watching message", "id", msg.ID, "request", msg.RequestID, "cid", msg.Cid)
 
 	resultChan := make(chan *api.MsgLookup, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
-		receipt, err := s.api.StateWaitMsg(ctx, id, 2*build.MessageConfidence, api.LookbackNoLimit, true)
+		receipt, err := s.api.StateWaitMsg(ctx, msg.Cid.Cid, 2*build.MessageConfidence, api.LookbackNoLimit, true)
 		if err != nil {
 			errorChan <- err
 			return
@@ -758,17 +767,22 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 			return
 		case <-tk.C:
 			func() {
-				s.mux.Lock()
-				defer s.mux.Unlock()
-				log.Debugf("checking pending messages, total: %d", len(s.watchingMessages))
-				for id, wm := range s.watchingMessages {
+				var replaceMessages []uint
+				err := s.watchingMessages.Range(func(k uint, wm *watchMessage) error {
 					if time.Since(wm.started) > 5*time.Minute {
-						log.Warnw("message is pending too long", "id", id, "took", time.Since(wm.started))
+						log.Warnw("message is pending too long", "id", k, "took", time.Since(wm.started))
 					}
 					if s.maxWait > 0 && time.Since(wm.started) > s.maxWait {
-						if err := s.replaceMessage(ctx, wm.id); err != nil {
-							log.Errorf("failed to replace message: %s", err)
-						}
+						replaceMessages = append(replaceMessages, k)
+					}
+					return nil
+				})
+				if err != nil {
+					log.Errorf("failed to range watching messages: %s", err)
+				}
+				for _, id := range replaceMessages {
+					if err := s.replaceMessage(ctx, id); err != nil {
+						log.Errorf("failed to replace message: %s", err)
 					}
 				}
 			}()
@@ -861,29 +875,12 @@ func (s *Service) replaceMessage(ctx context.Context, id uint) error {
 		log.Infow("replaced message", "old id", id, "new id", newMsg.ID, "old cid", m.Cid, "new cid", newID)
 
 		// remove old watching message
-		if owm := s.getWatchingMessage(id); owm != nil {
+		if owm, ok := s.watchingMessages.Get(id); ok {
 			owm.Cancel()
 		}
+
 		return nil
 	})
-}
-
-func (s *Service) getWatchingMessage(id uint) *watchMessage {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-	return s.watchingMessages[id]
-}
-
-func (s *Service) putWatchingMessage(id uint, wm *watchMessage) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-	s.watchingMessages[id] = wm
-}
-
-func (s *Service) removeWatchingMessage(id uint) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-	delete(s.watchingMessages, id)
 }
 
 func SectorNumsToBitfield(sectors []abi.SectorNumber) bitfield.BitField {

@@ -9,6 +9,9 @@ extend: ffi-deps
 	go build $(GOFLAGS) -o extend ./
 .PHONY: extend
 
+test: ffi-deps
+	go test $(GOFLAGS) ./...
+
 ffi-deps:
 	git submodule update --init --recursive
 	make -C extern/filecoin-ffi
