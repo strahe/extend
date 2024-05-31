@@ -524,7 +524,7 @@ loopParams:
 			Params: sp,
 		}, nil)
 		if err != nil {
-			log.Errorf("failed to push message: %s", err)
+			log.Errorf("failed to push message %d: %s", i, err)
 			errMsgs = append(errMsgs, fmt.Errorf("mpool push message: %w", err).Error())
 			continue
 		}
@@ -556,7 +556,7 @@ loopParams:
 		return messages, dryRuns, nil
 	}
 	// join errors as one error
-	return messages, dryRuns, fmt.Errorf(strings.Join(errMsgs, ";"))
+	return messages, dryRuns, fmt.Errorf(strings.Join(errMsgs, ";\n"))
 }
 
 func buildParams(l miner.SectorLocation, newExp abi.ChainEpoch, numbers []abi.SectorNumber, claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId, claimsMap map[verifreg.ClaimId]verifreg.Claim) (*miner.ExpirationExtension2, []abi.SectorNumber, int, error) {
