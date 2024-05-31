@@ -10,9 +10,10 @@ RUN apt-get update && apt-get install -y hwloc jq libhwloc-dev mesa-opencl-icd o
 WORKDIR /go/src/github.com/gh-efforts/extend
 COPY . .
 
-RUN make ffi-deps
-RUN go mod download
+# Run tests
+RUN make test
 
+# Build the application
 RUN make && cp ./extend /usr/bin/
 
 # Use the buildpack-deps image for the final image
