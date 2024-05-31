@@ -1,4 +1,3 @@
-
 # extend
 
 Filecoin sector 续期服务
@@ -6,11 +5,11 @@ Filecoin sector 续期服务
 ## 部署
 
 ```shell  
-# 编译主网程序  
-make  # 或者 make docker-mainnet
+# 运行测试
+make test
 
-# 编译测试网程序  
-make calibnet  # 或者 make docker-calibnet
+# 编译
+make  # 或者 make docker
 
 # 运行
 export FULLNODE_API_INFO="lotus api info"  # lotus api info, need sign permission
@@ -76,25 +75,28 @@ Authorization:  Bearer  <token>
 ```  
 
 #### 返回参数
-| 参数名            | 值                                                     | 说明                                        |  
-|----------------|-------------------------------------------------------|-------------------------------------------|  
-| id             | 11                                                    | 请求ID                                      |  
-| extension      | 21000                                                 | 续期追加的高度，创建时指定的参数                          |  
-| from           | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始时间，创建时指定的参数                  |  
-| to             | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                  |  
-| new_expiration | null                                                  | 新的过期时间，创建时指定的参数                           |  
-| max_sectors    | 500                                                   | 单条消息允许包含的最大sector数量，创建时指定的参数              |
-| messages       | null                                                  | 续期上链的消息，array                             |  
-| tolerance      | 20160                                                 | 续期公差，创建时指定的参数                             |
-| miner          | "t017387"                                             | 矿工                                        |  
-| status         | "failed"                                              | 状态，`created`,`pending`,`failed`,`success` |  
-| took           | 526.841994321                                         | 续期执行耗时,单位s                                |  
-| confirmed_at   | null                                                  | 消息上链的确认时间                                 |  
-| dry_run        | true                                                  | 是否为测试运行                                   |  
-| dry_run_result | ""                                                    | 测试运行结果                                    |  
-| error          | "failed to get active sector set: RPCConnectionError" | 错误信息                                      |  
-| created_at     | "2024-05-11T13:39:40.74831759+08:00"                  | 创建时间                                      |  
-| updated_at     | "2024-05-11T13:40:16.237069667+08:00"                 | 更新时间                                      |  
+| 参数名               | 值                                                     | 说明                                        |  
+|-------------------|-------------------------------------------------------|-------------------------------------------|  
+| id                | 11                                                    | 请求ID                                      |  
+| extension         | 21000                                                 | 续期追加的高度，创建时指定的参数                          |  
+| from              | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始时间，创建时指定的参数                  |  
+| to                | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                  |  
+| new_expiration    | null                                                  | 新的过期时间，创建时指定的参数                           |  
+| max_sectors       | 500                                                   | 单条消息允许包含的最大sector数量，创建时指定的参数              |
+| messages          | null                                                  | 续期上链的消息，array                             |  
+| tolerance         | 20160                                                 | 续期公差，创建时指定的参数                             |
+| miner             | "t017387"                                             | 矿工                                        |  
+| status            | "failed"                                              | 状态，`created`,`pending`,`failed`,`success` |  
+| took              | 526.841994321                                         | 续期执行耗时,单位s                                |  
+| confirmed_at      | null                                                  | 消息上链的确认时间                                 |  
+| dry_run           | true                                                  | 是否为测试运行                                   |  
+| dry_run_result    | ""                                                    | 测试运行结果                                    |  
+| error             | "failed to get active sector set: RPCConnectionError" | 错误信息                                      |  
+| total_sectors     | 1000                                                  | 续期的sector数量                               |
+| published_sectors | 500                                                   | 实际上链的sector数量，注：上链并不一定成功                  |
+| succeeded_sectors | 0                                                     | 成功续期的sector数量                             |
+| created_at        | "2024-05-11T13:39:40.74831759+08:00"                  | 创建时间                                      |  
+| updated_at        | "2024-05-11T13:40:16.237069667+08:00"                 | 更新时间                                      |  
 
 #### 返回示例
 ```json  
@@ -115,6 +117,9 @@ Authorization:  Bearer  <token>
     "new_expiration": null, 
     "status": "created", 
     "to": "2024-05-13T07:34:47Z", 
+    "total_sectors": 0,
+    "published_sectors": 0,
+    "succeeded_sectors": 0,
     "took": 526.841994321, 
     "updated_at": "2024-05-11T13:40:16.237069667+08:00"
   }
@@ -144,6 +149,9 @@ Authorization:  Bearer  <token>
     "max_sectors": 500,
     "status": "pending",
     "to": "2024-05-14T15:18:47+08:00",
+    "total_sectors": 1000,
+    "published_sectors": 500,
+    "succeeded_sectors": 0,
     "took": 526.841994321,
     "updated_at": "2024-05-13T16:53:55.942614308+08:00"
   }

@@ -159,14 +159,14 @@ func (s *Service) processRequest(ctx context.Context) error {
 	toEpoch := TimestampToEpoch(request.To)
 
 	start := time.Now()
-	messages, dryRuns, terr := s.extend(ctx, request.Miner.Address, fromEpoch, toEpoch,
+	result, terr := s.extend(ctx, request.Miner.Address, fromEpoch, toEpoch,
 		request.Extension, request.NewExpiration, request.Tolerance,
 		request.MaxSectors, request.DryRun)
 
 	if terr != nil {
 		request.Error = terr.Error()
 	}
-	if len(messages)+len(dryRuns) == 0 {
+	if (result == nil) || len(result.Messages)+len(result.DryRuns) == 0 {
 		if terr == nil {
 			request.Status = RequestStatusSuccess // no sectors need to extend
 		} else {
@@ -174,8 +174,11 @@ func (s *Service) processRequest(ctx context.Context) error {
 			request.Status = RequestStatusFailed
 		}
 	} else {
+		request.PublishedSectors = result.Published
+		request.TotalSectors = result.TotalSectors
+
 		if request.DryRun {
-			b, err := json.MarshalIndent(dryRuns, "", "  ")
+			b, err := json.MarshalIndent(result.DryRuns, "", "  ")
 			if err != nil {
 				log.Errorf("failed to marshal dry runs: %s", err)
 			} else {
@@ -190,7 +193,7 @@ func (s *Service) processRequest(ctx context.Context) error {
 			// even if some messages are failed, we still make the request status to pending
 			// handle the failed messages in the message checker
 			request.Status = RequestStatusPending
-			request.Messages = messages
+			request.Messages = result.Messages
 		}
 	}
 	log.Infof("processing request %d, status: %s, took: %s", request.ID, request.Status, time.Since(start))
@@ -268,41 +271,41 @@ func (s *Service) getRequest(_ context.Context, id uint) (*Request, error) {
 
 func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi.ChainEpoch,
 	extension *abi.ChainEpoch, newExpiration *abi.ChainEpoch, tolerance abi.ChainEpoch,
-	maxSectors int, dryRun bool) ([]*Message, []*PseudoExtendSectorExpirationParams, error) {
+	maxSectors int, dryRun bool) (*extendResult, error) {
 
 	if extension == nil && newExpiration == nil {
-		return nil, nil, fmt.Errorf("either extension or new expiration must be set")
+		return nil, fmt.Errorf("either extension or new expiration must be set")
 	}
 
 	log.Infow("extending sectors", "miner", addr, "from", from, "to", to, "extension", extension, "new_expiration", newExpiration, "dry_run", dryRun)
 
 	head, err := s.api.ChainHead(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	currEpoch := head.Height()
 
 	nv, err := s.api.StateNetworkVersion(ctx, types.EmptyTSK)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get network version: %w", err)
+		return nil, fmt.Errorf("failed to get network version: %w", err)
 	}
 	sectorsMax, err := policy.GetAddressedSectorsMax(nv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get addressed sectors max: %w", err)
+		return nil, fmt.Errorf("failed to get addressed sectors max: %w", err)
 	}
 
 	addrSectors := sectorsMax
 	if maxSectors != 0 {
 		addrSectors = maxSectors
 		if addrSectors > sectorsMax {
-			return nil, nil, fmt.Errorf("the specified max-sectors exceeds the maximum limit")
+			return nil, fmt.Errorf("the specified max-sectors exceeds the maximum limit")
 		}
 	}
 
 	time1 := time.Now()
 	activeSet, err := warpActiveSectors(ctx, s.api, addr, lo.If(os.Getenv("CACHE_ACTIVE_SECTORS") == "1", true).Else(false)) // only for debug, do not cache in production
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get active set: %w", err)
+		return nil, fmt.Errorf("failed to get active set: %w", err)
 	}
 	log.Infof("got active set with %d sectors, took: %s", len(activeSet), time.Since(time1))
 	var sectors []abi.SectorNumber
@@ -316,16 +319,16 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	log.Infof("found %d sectors to extend", len(sectors))
 	if len(sectors) == 0 {
 		log.Infof("nothing to extend, break")
-		return nil, nil, nil
+		return &extendResult{}, nil
 	}
 
 	mAct, err := s.api.StateGetActor(ctx, addr, types.EmptyTSK)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get miner actor: %w", err)
+		return nil, fmt.Errorf("failed to get miner actor: %w", err)
 	}
 	mas, err := miner.Load(s.adtStore, mAct)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load miner actor state: %w", err)
+		return nil, fmt.Errorf("failed to load miner actor state: %w", err)
 	}
 	time2 := time.Now()
 	activeSectorsLocation := make(map[abi.SectorNumber]*miner.SectorLocation, len(activeSet))
@@ -344,13 +347,13 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 			})
 		})
 	}); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	log.Infof("got active sectors location, took: %s", time.Since(time2))
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get max extension: %w", err)
+		return nil, fmt.Errorf("failed to get max extension: %w", err)
 	}
 
 	extensions := map[miner.SectorLocation]map[abi.ChainEpoch][]abi.SectorNumber{}
@@ -376,7 +379,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		}
 		l, found := activeSectorsLocation[si.SectorNumber]
 		if !found {
-			return nil, nil, fmt.Errorf("location for sector %d not found", si.SectorNumber)
+			return nil, fmt.Errorf("location for sector %d not found", si.SectorNumber)
 		}
 		log.Debugf("extending sector %d from %d to %d", si.SectorNumber, si.Expiration, newExp)
 		es, found := extensions[*l]
@@ -404,26 +407,26 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 
 	verifregAct, err := s.api.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to lookup verifreg actor: %w", err)
+		return nil, fmt.Errorf("failed to lookup verifreg actor: %w", err)
 	}
 
 	verifregSt, err := verifreg.Load(s.adtStore, verifregAct)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load verifreg state: %w", err)
+		return nil, fmt.Errorf("failed to load verifreg state: %w", err)
 	}
 
 	claimsMap, err := verifregSt.GetClaims(addr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to lookup claims for miner: %w", err)
+		return nil, fmt.Errorf("failed to lookup claims for miner: %w", err)
 	}
 
 	claimIdsBySector, err := verifregSt.GetClaimIdsBySector(addr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to lookup claim IDs by sector: %w", err)
+		return nil, fmt.Errorf("failed to lookup claim IDs by sector: %w", err)
 	}
 	declMax, err := policy.GetDeclarationsMax(nv)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var params []miner.ExtendSectorExpiration2Params
 	var cannotExtendSectors []abi.SectorNumber
@@ -439,7 +442,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 				currentNumbers, numbers = numbers[:addrSectors], numbers[addrSectors:]
 				e2, ce, _, err := buildParams(l, newExp, currentNumbers, claimIdsBySector, claimsMap)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to build params: %w", err)
+					return nil, fmt.Errorf("failed to build params: %w", err)
 				}
 				if len(ce) != 0 {
 					cannotExtendSectors = append(cannotExtendSectors, ce...)
@@ -451,7 +454,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 			if len(numbers) > 0 {
 				e2, ce, sectorsInDecl, err := buildParams(l, newExp, numbers, claimIdsBySector, claimsMap)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to build params: %w", err)
+					return nil, fmt.Errorf("failed to build params: %w", err)
 				}
 				if len(ce) != 0 {
 					cannotExtendSectors = append(cannotExtendSectors, ce...)
@@ -473,12 +476,14 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 	}
 	if len(params) == 0 {
 		log.Info("nothing to extend")
-		return nil, nil, nil
+		return &extendResult{
+			TotalSectors: len(sectors),
+		}, nil
 	}
 
 	mi, err := s.api.StateMinerInfo(ctx, addr, types.EmptyTSK)
 	if err != nil {
-		return nil, nil, fmt.Errorf("getting miner info: %w", err)
+		return nil, fmt.Errorf("getting miner info: %w", err)
 	}
 	stotal := 0
 	published := 0
@@ -538,6 +543,7 @@ loopParams:
 		msg := &Message{
 			Cid:        CID{smsg.Cid()},
 			Extensions: exts,
+			Sectors:    scount,
 		}
 		s.db.Create(msg)
 		messages = append(messages, msg)
@@ -552,11 +558,25 @@ loopParams:
 	} else {
 		log.Infof("all sectors are published: %d", published)
 	}
+
+	result := &extendResult{
+		Messages:     messages,
+		DryRuns:      dryRuns,
+		TotalSectors: len(sectors),
+		Published:    published,
+	}
 	if len(errMsgs) == 0 {
-		return messages, dryRuns, nil
+		return result, nil
 	}
 	// join errors as one error
-	return messages, dryRuns, fmt.Errorf(strings.Join(errMsgs, ";\n"))
+	return result, fmt.Errorf(strings.Join(errMsgs, ";\n"))
+}
+
+type extendResult struct {
+	Messages     []*Message
+	DryRuns      []*PseudoExtendSectorExpirationParams
+	TotalSectors int
+	Published    int
 }
 
 func buildParams(l miner.SectorLocation, newExp abi.ChainEpoch, numbers []abi.SectorNumber, claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId, claimsMap map[verifreg.ClaimId]verifreg.Claim) (*miner.ExpirationExtension2, []abi.SectorNumber, int, error) {
