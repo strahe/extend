@@ -184,6 +184,13 @@ Accelerate a renewal request by re-estimating the gas for all messages that have
 |-----------|-------|----------|----------------------------------------------------------------------------------------------------------------------|  
 | fee_limit | 1FIL  | No       | Maximum allowable gas fee; if not provided, the system estimates; the higher the value, the faster the on-chain time |  
 
+#### Request Example
+ ```json
+ {
+  "fee_limit": "1FIL"
+}
+```
+
 #### Response Example
 ```json
  {
