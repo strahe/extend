@@ -647,6 +647,7 @@ func (s *Service) speedupRequest(ctx context.Context, id uint, mss *api.MessageS
 	if request.Status != RequestStatusPending {
 		return fmt.Errorf("request is not pending")
 	}
+
 	for _, msg := range request.Messages {
 		if msg.OnChain {
 			continue
@@ -893,6 +894,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 			Cid:        CID{newID},
 			Extensions: m.Extensions,
 			RequestID:  m.RequestID,
+			Sectors:    m.Sectors,
 		}
 
 		if err := tx.Create(newMsg).Error; err != nil {
