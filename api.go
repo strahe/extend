@@ -7,6 +7,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/filecoin-project/lotus/chain/types"
+
+	"github.com/filecoin-project/lotus/api"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/go-playground/validator/v10"
@@ -111,6 +115,10 @@ func (a *implAPI) get(w http.ResponseWriter, r *http.Request) {
 	warpResponse(w, http.StatusOK, req, nil)
 }
 
+type speedupRequestArgs struct {
+	FeeLimit *string `json:"fee_limit"`
+}
+
 func (a *implAPI) speedup(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
@@ -119,7 +127,31 @@ func (a *implAPI) speedup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = a.srv.speedupRequest(r.Context(), uint(id))
+	var args speedupRequestArgs
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+
+	if err := a.validate.Struct(args); err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+
+	var mss *api.MessageSendSpec
+	if args.FeeLimit != nil {
+		maxFee, err := types.ParseFIL(*args.FeeLimit)
+		if err != nil {
+			warpResponse(w, http.StatusBadRequest, nil,
+				fmt.Errorf("failed to parse fee limit: %s", err))
+			return
+		}
+		mss = &api.MessageSendSpec{
+			MaxFee: abi.TokenAmount(maxFee),
+		}
+	}
+
+	err = a.srv.speedupRequest(r.Context(), uint(id), mss)
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return

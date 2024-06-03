@@ -636,7 +636,7 @@ func buildParams(l miner.SectorLocation, newExp abi.ChainEpoch, numbers []abi.Se
 	return &e2, cannotExtendSectors, sectorsInDecl, nil
 }
 
-func (s *Service) speedupRequest(ctx context.Context, id uint) error {
+func (s *Service) speedupRequest(ctx context.Context, id uint, mss *api.MessageSendSpec) error {
 	var request Request
 	if err := s.db.Preload(clause.Associations).First(&request, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -647,12 +647,13 @@ func (s *Service) speedupRequest(ctx context.Context, id uint) error {
 	if request.Status != RequestStatusPending {
 		return fmt.Errorf("request is not pending")
 	}
+
 	for _, msg := range request.Messages {
 		if msg.OnChain {
 			continue
 		}
 		// todo: need order by nonce?
-		if err := s.replaceMessage(ctx, msg.ID); err != nil {
+		if err := s.replaceMessage(ctx, msg.ID, mss); err != nil {
 			return fmt.Errorf("failed to replace message: %w", err)
 		}
 	}
@@ -789,7 +790,7 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 			func() {
 				var replaceMessages []uint
 				err := s.watchingMessages.Range(func(k uint, wm *watchMessage) error {
-					if time.Since(wm.started) > 5*time.Minute {
+					if time.Since(wm.started) > 6*time.Hour {
 						log.Warnw("message is pending too long", "id", k, "took", time.Since(wm.started))
 					}
 					if s.maxWait > 0 && time.Since(wm.started) > s.maxWait {
@@ -800,8 +801,14 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 				if err != nil {
 					log.Errorf("failed to range watching messages: %s", err)
 				}
+
+				maxFee, _ := types.ParseFIL("1FIL") // todo: get from config
+
+				mss := &api.MessageSendSpec{
+					MaxFee: abi.TokenAmount(maxFee),
+				}
 				for _, id := range replaceMessages {
-					if err := s.replaceMessage(ctx, id); err != nil {
+					if err := s.replaceMessage(ctx, id, mss); err != nil {
 						log.Errorf("failed to replace message: %s", err)
 					}
 				}
@@ -810,7 +817,7 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 	}
 }
 
-func (s *Service) replaceMessage(ctx context.Context, id uint) error {
+func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageSendSpec) error {
 	var m Message
 	if err := s.db.Preload(clause.Associations).First(&m, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -857,7 +864,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint) error {
 
 	defaultRBF := messagepool.ComputeRBF(msg.GasPremium, cfg.ReplaceByFeeRatio)
 
-	ret, err := s.api.GasEstimateMessageGas(ctx, &msg, nil, types.EmptyTSK)
+	ret, err := s.api.GasEstimateMessageGas(ctx, &msg, mss, types.EmptyTSK)
 	if err != nil {
 		return fmt.Errorf("failed to estimate gas values: %w", err)
 	}
@@ -867,7 +874,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint) error {
 	mff := func() (abi.TokenAmount, error) {
 		return abi.TokenAmount(config.DefaultDefaultMaxFee), nil
 	}
-	messagepool.CapGasFee(mff, &msg, nil)
+	messagepool.CapGasFee(mff, &msg, mss)
 
 	smsg, err := s.api.WalletSignMessage(ctx, msg.From, &msg)
 	if err != nil {
@@ -887,6 +894,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint) error {
 			Cid:        CID{newID},
 			Extensions: m.Extensions,
 			RequestID:  m.RequestID,
+			Sectors:    m.Sectors,
 		}
 
 		if err := tx.Create(newMsg).Error; err != nil {
