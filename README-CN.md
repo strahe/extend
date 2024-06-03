@@ -8,30 +8,42 @@ Filecoin sector 续期服务
 
 ## 部署
 
-```shell  
-# 运行测试
+### 运行测试
+```shell
 make test
+```
 
-# 编译
+### 编译
+```shell
 make  # 或者 make docker
+```
 
-# 运行
-export FULLNODE_API_INFO="lotus api info"  # lotus api info, need sign permission
+### 运行
+在运行之前，请确保设置了 `FULLNODE_API_INFO` 环境变量，具有必要的权限:
+```shell
+export FULLNODE_API_INFO="lotus api info"  # 需要 'sign' 权限
+```
 
-./extend run   
+启动服务:
+```shell
+./extend run
+
 OPTIONS:  
- --listen value  specify the address to listen on (default: "127.0.0.1:8000")
- --db value      specify the database file to use (default: "extend.db") 
- --secret value  specify the secret to use for API authentication, if not set, no auth will be enabled 
- --max-wait value  [Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing (default: 0s)
- --debug         enable debug logging (default: false) 
- --help, -h      show help  
+ --listen value   Specify the address to listen on (default: "127.0.0.1:8000")
+ --db value       Specify the database file to use (default: "extend.db") 
+ --secret value   Specify the secret to use for API authentication; if not set, no auth will be enabled 
+ --max-wait value [Warning] Specify the maximum time to wait for messages on-chain; attempts replacement if exceeded. Use with caution (default: 0s)
+ --debug          Enable debug logging (default: false) 
+ --help, -h       Show help  
+```
 
-# 查看帮助  
+查看帮助:
+```shell
 ./extend -h  
 ```
-### Docker
 
+### Docker
+使用Docker运行服务:
 ```shell
 docker run -d --name extend \
   -p 8000:8000 
@@ -41,13 +53,16 @@ docker run -d --name extend \
 ```
 
 ### 开启鉴权 (可选)
-如果启动服务时指定了 `--secret yoursecret`, 那么API接口将开启鉴权，否则不开启。
-开启鉴权之后，所有api请求需要token.
-
-生成token:
+通过使用 `--secret` 选项启用鉴权:
 ```shell
-./extend auth create-token --secret yoursecret --user lee [--expiry 可选过期时间]
+./extend run --secret yoursecret
+```
 
+#### 生成token
+```shell
+./extend auth create-token --secret yoursecret --user {user} [--expiry 可选过期时间]
+
+# Example output
 token created successfully:
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsZWUiLCJuYmYiOjE3MTU1NzExMzgsImlhdCI6MTcxNTU3MTEzOH0.2FinpGB7Dx07dLNWPAW3jqo703i13nZUB8ZCY__wKnQ
 ```
@@ -55,12 +70,17 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsZWUiLCJuYmYiOjE3MTU1NzExMzgsIml
 ```
 Authorization:  Bearer  <token>
 ```
-修改 `--secret yoursecret` ， 基于secret生成的所有token将会失效.
+> [!Warning]
+> 修改 `--secret yoursecret` ， 基于secret生成的所有token将会失效.
 
 ## 2. Usage
 
-### POST /requests
-创建一个续期请求
+### 创建一个续期请求
+
+```http request
+POST /requests
+```
+
 #### 请求参数
 
 | 参数名            | 值                         | 是否必须 | 说明                                                                                       |  
@@ -140,8 +160,11 @@ Authorization:  Bearer  <token>
 }  
 ``` 
 
-### GET /requests/{:id｝
+### 查询续期请求
 根据ID查询一个续期请求，返回的结构与创建时一致
+```http request
+GET /requests/{:id}
+```
 
 #### 返回示例
  ```json
@@ -172,8 +195,11 @@ Authorization:  Bearer  <token>
 }
  ```
 
-### POST /requests/{:id}/speedup
+### 加速续期请求
 加速一个续期请求，将一个pending状态的请求未上链的所有消息重新预估gas后上链.
+```http request
+POST /requests/{:id}/speedup
+```
 > [!WARNING]
 > 只有pending状态的请求才能加速，其他状态的请求不能加速.
 > 加速返回success，并不能保证消息一定会上链，等待一段时间后再次查询请求状态，可多次尝试.

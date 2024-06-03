@@ -6,31 +6,44 @@ Filecoin Sector Renewal Service
 
 [![Build](https://github.com/gh-efforts/extend/actions/workflows/container-build.yml/badge.svg)](https://github.com/gh-efforts/extend/actions/workflows/container-build.yml)
 
+
 ## Deployment
+
+### Running Tests
 ```shell
-# Run tests
 make test
+```
 
-# Build
+### Building
+```shell
 make  # or make docker
+```
 
-# Run
-export FULLNODE_API_INFO="lotus api info"  # lotus api info, need sign permission
+### Running
+Before running, ensure you set the `FULLNODE_API_INFO` environment variable with the necessary permissions:
+```shell
+export FULLNODE_API_INFO="lotus api info"  # Requires 'sign' permission
+```
 
+To start the service:
+```shell
 ./extend run   
-OPTIONS:  
- --listen value  specify the address to listen on (default: "127.0.0.1:8000")
- --db value      specify the database file to use (default: "extend.db") 
- --secret value  specify the secret to use for API authentication, if not set, no auth will be enabled 
- --max-wait value  [Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing (default: 0s)
- --debug         enable debug logging (default: false) 
- --help, -h      show help  
 
-# View help
+OPTIONS:  
+ --listen value   Specify the address to listen on (default: "127.0.0.1:8000")
+ --db value       Specify the database file to use (default: "extend.db") 
+ --secret value   Specify the secret to use for API authentication; if not set, no auth will be enabled 
+ --max-wait value [Warning] Specify the maximum time to wait for messages on-chain; attempts replacement if exceeded. Use with caution (default: 0s)
+ --debug          Enable debug logging (default: false) 
+ --help, -h       Show help  
+```
+Get help
+```shell
 ./extend -h  
 ```
-### Docker
 
+### Docker
+Run the service using Docker:
 ```shell
 docker run -d --name extend \
   -p 8000:8000 
@@ -40,43 +53,49 @@ docker run -d --name extend \
 ```
 
 ### Enable authentication (optional)
-
-If you start the service with `--secret yoursecret`, the API will require authentication; otherwise, it will not.
-
-Generate a token:
+Enable authentication by starting the service with the `--secret` option:
 ```shell
-./extend auth create-token --secret yoursecret --user lee [--expiry optional_expiry_time]
-
-Token created successfully:
-eyJhbGciOiJIUzI1NiIsInR5cI6IkpXVCJ9.eyJzdWIiOiJsZWUiLJuYmYiOjE3MTU1zExMzgsImlhdCI6MTcxNTU3MTEzOH0.2FinpGB7D07dLNWPAW3jqo703i13nZU8ZCY__wKnQ
+./extend run --secret yoursecret
 ```
 
-Use the token:
+#### Generating Tokens
+Generate a token for API access:
+```shell
+./extend auth create-token --secret yoursecret --user {name} [--expiry optional_expiry_time]
+
+# Example output
+Token created successfully:
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsZWUiLJuYmYiOjE3MTU1zExMzgsImlhdCI6MTcxNTU3MTEzOH0.2FinpGB7D07dLNWPAW3jqo703i13nZU8ZCY__wKnQ
+```
+Use the token in your requests:
 ```
 Authorization: Bearer  <token>
 ```
-
-Changing `--secret yoursecret` will invalidate all tokens generated based on the old secret.
+> [!WARNING] 
+> Changing `--secret yoursecret` will invalidate all previously generated tokens.
 
 ## Usage
 
-### POST /requests
-Create a renewal request.
+### Creating Renewal Requests
+Create a renewal request by sending a POST request to `/requests`:
+```http request
+POST /requests
+```
 
 #### Request parameters
-| Parameter      | Value                        | Required | Description                                                                                                                                             |  
-|----------------|------------------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|  
-| miner          | f01234                       | Yes      | Miner ID                                                                                                                                                |  
-| from           | 2024-05-12T07:34:47+00:00    | Yes      | Start time of the sector expiration range in RFC3339 format; renew sectors expiring within this range                                                   |  
-| to             | 2024-05-13T07:34:47+00:00    | Yes      | End time of the sector expiration range in RFC3339 format; renew sectors expiring within this range                                                     |  
-| extension      | 20160                        | No       | Number of epochs to extend; adds this period to the original expiration                                                                                 |  
-| new_expiration | 3212223                      | No       | Extend to a specified epoch, overriding the previous expiration; if set, `extension` is ignored                                                         |  
-| tolerance      | 20160, 7 days, default value | No       | Renewal tolerance for accuracy; aggregates sectors with close expiration times to reduce message size and gas costs; ignored if `new_expiration` is set |  
-| max_sectors    | 500, default value           | No       | Maximum number of sectors allowed per message, up to 25000;                                                                                             |  
-| dry_run        | false, default               | No       | Test mode; if true, no actual renewal operation is performed, only checks are conducted                                                                 |  
+| Parameter      | Value                        | Required | Description                                                                           |  
+|----------------|------------------------------|----------|---------------------------------------------------------------------------------------|  
+| miner          | f01234                       | Yes      | Miner ID                                                                              |  
+| from           | 2024-05-12T07:34:47+00:00    | Yes      | Start time of the sector expiration range in RFC3339 format                           |  
+| to             | 2024-05-13T07:34:47+00:00    | Yes      | End time of the sector expiration range in RFC3339 format                             |  
+| extension      | 20160                        | No       | Number of epochs to extend                                                            |  
+| new_expiration | 3212223                      | No       | New expiration epoch, overrides `extension`                                           |  
+| tolerance      | 20160, 7 days, default value | No       | Renewal tolerance for aggregation                                                     |  
+| max_sectors    | 500, default value           | No       | Maximum sectors per message, up to 25000                                              |  
+| dry_run        | false, default               | No       | If true, performs a test run without actual renewal                                   |  
 
 #### Request example
-```shell
+```json
 {  
     "miner": "f01234", 
     "from": "2024-05-12T07:34:47+00:00", 
@@ -140,11 +159,15 @@ Create a renewal request.
 }
 ```
 
-### GET /requests/{:id｝
-Query a renewal request by ID, returning the same structure as when created.
+### Querying Renewal Requests
+Query a renewal request by its ID:
+```http request
+GET /requests/{:id}
+```
+The response structure is the same as the creation response.
 
 ##### Response Example
-```
+```json
 {
   "data": {
     "confirmed_at": null,
@@ -172,12 +195,14 @@ Query a renewal request by ID, returning the same structure as when created.
 }
 ```
 
-### POST /requests/{:id}/speedup
-Accelerate a renewal request by re-estimating the gas for all messages that have not been confirmed on-chain and are in a pending state.
-
+### Speeding Up Requests
+Accelerate a renewal request by re-estimating the gas for all messages that are still pending on-chain:
+```http request
+POST /requests/{:id}/speedup
+```
 > [!WARNING]
-> Only requests in the pending state can be accelerated. Requests in other states cannot be accelerated.
-> Speedup returns success but does not guarantee that the message will be on-chain. Check the request status again after a while and try multiple times if needed.
+> Only pending requests can be accelerated. 
+> This does not guarantee the message will be on-chain. Check the request status again after a while and try multiple times if needed.
 
 #### Request parameters
 | Parameter | Value | Required | Description                                                                                                          |  
