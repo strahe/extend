@@ -205,9 +205,9 @@ POST /requests/{:id}/speedup
 > This does not guarantee the message will be on-chain. Check the request status again after a while and try multiple times if needed.
 
 #### Request parameters
-| Parameter | Value | Required | Description                                                                                                          |  
-|-----------|-------|----------|----------------------------------------------------------------------------------------------------------------------|  
-| fee_limit | 1FIL  | No       | Maximum allowable gas fee; if not provided, the system estimates; the higher the value, the faster the on-chain time |  
+| Parameter | Value | Required | Description                                                       |  
+|-----------|-------|----------|-------------------------------------------------------------------|  
+| fee_limit | 1FIL  | No       | Maximum allowable gas fee; if not provided, the system estimates; |  
 
 #### Request Example
  ```json

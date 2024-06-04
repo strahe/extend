@@ -864,14 +864,16 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 
 	defaultRBF := messagepool.ComputeRBF(msg.GasPremium, cfg.ReplaceByFeeRatio)
 
-	msg.GasLimit = 0 // clear gas limit
+	//msg.GasLimit = 0 // clear gas limit
+	msg.GasFeeCap = abi.NewTokenAmount(0)
+	msg.GasPremium = abi.NewTokenAmount(0)
 	ret, err := s.api.GasEstimateMessageGas(ctx, &msg, mss, types.EmptyTSK)
 	if err != nil {
 		return fmt.Errorf("failed to estimate gas values: %w", err)
 	}
 	msg.GasPremium = big.Max(ret.GasPremium, defaultRBF)
 	msg.GasFeeCap = big.Max(ret.GasFeeCap, msg.GasPremium)
-	msg.GasLimit = ret.GasLimit // set new gas limit
+	//msg.GasLimit = ret.GasLimit // set new gas limit
 
 	mff := func() (abi.TokenAmount, error) {
 		return abi.TokenAmount(config.DefaultDefaultMaxFee), nil
