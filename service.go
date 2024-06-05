@@ -890,8 +890,10 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 		}
 	}
 
+	// If the message is not found in the mpool, skip it and continue with the next one
 	if found == nil {
-		return fmt.Errorf("no pending message found from %s with nonce %d", cm.From, cm.Nonce)
+		sLog.Warn("message not found in mpool, skipping")
+		return nil
 	}
 	msg := found.Message
 
