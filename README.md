@@ -2,7 +2,7 @@
 
 [中文](README-CN.md)
 
-Filecoin Sector Renewal Service
+Filecoin Sector Extension Service
 
 [![Build](https://github.com/gh-efforts/extend/actions/workflows/container-build.yml/badge.svg)](https://github.com/gh-efforts/extend/actions/workflows/container-build.yml)
 
