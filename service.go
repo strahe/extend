@@ -916,7 +916,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 	//msg.GasLimit = ret.GasLimit // set new gas limit
 
 	mff := func() (abi.TokenAmount, error) {
-		return abi.TokenAmount(config.DefaultDefaultMaxFee), nil
+		return abi.TokenAmount(config.DefaultDefaultMaxFee()), nil
 	}
 	messagepool.CapGasFee(mff, &msg, mss)
 

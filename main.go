@@ -13,7 +13,7 @@ func main() {
 	app := &cli.App{
 		Name:                 "extend",
 		Usage:                "A tool and service to extend filecoin sector lifetime",
-		Version:              build.UserVersion(),
+		Version:              string(build.NodeUserVersion()),
 		EnableBashCompletion: true,
 		Commands: []*cli.Command{
 			runCmd,
