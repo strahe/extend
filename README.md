@@ -46,10 +46,10 @@ Get help
 Run the service using Docker:
 ```shell
 docker run -d --name extend \
-  -p 8000:8000 
-  -e FULLNODE_API_INFO="lotus api info" 
-  -v /path/to/extend:/app
-  gh-efforts/extend:latest run --listen 0.0.0.0:8000 --db /app/extend.db
+  -p 8000:8000 \
+  -e FULLNODE_API_INFO="lotus api info" \
+  -v /path/to/extend:/app \
+  ghcr.io/strahe/extend:latest run --listen 0.0.0.0:8000 --db /app/extend.db
 ```
 
 ### Enable authentication (optional)
