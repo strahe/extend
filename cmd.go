@@ -101,8 +101,8 @@ var runCmd = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:  "db",
-			Value: "extend.db",
-			Usage: "specify the database file to use",
+			Value: "sqlite3:extend.db",
+			Usage: "specify the database URL to use， support sqlite3, mysql, postgres, https://github.com/xo/dburl?tab=readme-ov-file#example-urls",
 		},
 		&cli.StringFlag{
 			Name:  "secret",
