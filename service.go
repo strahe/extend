@@ -610,7 +610,7 @@ loopParams:
 		return result, nil
 	}
 	// join errors as one error
-	return result, fmt.Errorf(strings.Join(errMsgs, ";\n"))
+	return result, fmt.Errorf("%s", strings.Join(errMsgs, ";\n"))
 }
 
 type extendResult struct {
