@@ -51,7 +51,7 @@ var authCreateTokenCmd = &cli.Command{
 		var d time.Duration
 		if cctx.IsSet("expiry") {
 			expiry := cctx.Timestamp("expiry")
-			d = expiry.Sub(time.Now())
+			d = time.Until(*expiry)
 		}
 
 		token, err := authNew([]byte(cctx.String("secret")),
@@ -212,11 +212,8 @@ func MonitorShutdown(handlers ...node.ShutdownHandler) <-chan struct{} {
 	out := make(chan struct{})
 
 	go func() {
-		select {
-		case sig := <-sigCh:
-			log.Warnw("received shutdown", "signal", sig)
-		}
-
+		sig := <-sigCh
+		log.Warnw("received shutdown", "signal", sig)
 		log.Warn("Shutting down...")
 
 		// Call all the handlers, logging on failure and success.

@@ -18,10 +18,10 @@ type RequestStatus string
 
 const (
 	RequestStatusCreated    RequestStatus = "created"
-	RequestStatusPending                  = "pending"
-	RequestStatusFailed                   = "failed"
-	RequestStatusPartfailed               = "partfailed"
-	RequestStatusSuccess                  = "success"
+	RequestStatusPending    RequestStatus = "pending"
+	RequestStatusFailed     RequestStatus = "failed"
+	RequestStatusPartfailed RequestStatus = "partfailed"
+	RequestStatusSuccess    RequestStatus = "success"
 )
 
 // Request represents a request in the system.

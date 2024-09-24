@@ -77,10 +77,8 @@ func authMiddleware(secret []byte) mux.MiddlewareFunc {
 	return authHandler
 }
 
-const (
-	userCtxKey = "auth_user"
-)
+type userCtxKey struct{}
 
 func WithAuthUser(ctx context.Context, user string) context.Context {
-	return context.WithValue(ctx, userCtxKey, user)
+	return context.WithValue(ctx, userCtxKey{}, user)
 }
