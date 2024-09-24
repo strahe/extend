@@ -83,16 +83,17 @@ POST /requests
 ```
 
 #### Request parameters
-| Parameter      | Value                        | Required | Description                                                                           |  
-|----------------|------------------------------|----------|---------------------------------------------------------------------------------------|  
-| miner          | f01234                       | Yes      | Miner ID                                                                              |  
-| from           | 2024-05-12T07:34:47+00:00    | Yes      | Start time of the sector expiration range in RFC3339 format                           |  
-| to             | 2024-05-13T07:34:47+00:00    | Yes      | End time of the sector expiration range in RFC3339 format                             |  
-| extension      | 20160                        | No       | Number of epochs to extend                                                            |  
-| new_expiration | 3212223                      | No       | New expiration epoch, overrides `extension`                                           |  
-| tolerance      | 20160, 7 days, default value | No       | Renewal tolerance for aggregation                                                     |  
-| max_sectors    | 500, default value           | No       | Maximum sectors per message, up to 25000                                              |  
-| dry_run        | false, default               | No       | If true, performs a test run without actual renewal                                   |  
+| Parameter           | Value                        | Required | Description                                                                                                                                                                       |  
+|---------------------|------------------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|  
+| miner               | f01234                       | Yes      | Miner ID                                                                                                                                                                          |  
+| from                | 2024-05-12T07:34:47+00:00    | Yes      | Start time of the sector expiration range in RFC3339 format                                                                                                                       |  
+| to                  | 2024-05-13T07:34:47+00:00    | Yes      | End time of the sector expiration range in RFC3339 format                                                                                                                         |  
+| extension           | 20160                        | No       | Number of epochs to extend                                                                                                                                                        |  
+| new_expiration      | 3212223                      | No       | New expiration epoch, overrides `extension`                                                                                                                                       |  
+| tolerance           | 20160, 7 days, default value | No       | Renewal tolerance for aggregation                                                                                                                                                 |  
+| max_sectors         | 500, default value           | No       | Maximum sectors per message, up to 25000                                                                                                                                          |
+| max_initial_pledges | 0, default value             | No       | Maximum cumulative pledge value allowed for sectors to be extended. If the cumulative pledge exceeds this value, the remaining sectors will not be extended. Default is no limit. |
+| dry_run             | false, default               | No       | If true, performs a test run without actual renewal                                                                                                                               |  
 
 #### Request example
 ```json
@@ -108,28 +109,29 @@ POST /requests
 }  
 ```
 #### Response parameters
-| Parameter         | Value                                                 | Description                                                    |  
-|-------------------|-------------------------------------------------------|----------------------------------------------------------------|  
-| id                | 11                                                    | Request ID                                                     |  
-| extension         | 21000                                                 | Extension height specified during creation                     |  
-| from              | "2024-05-12T07:34:47Z"                                | Start time of the sector expiration range                      |  
-| to                | "2024-05-13T07:34:47Z"                                | End time of the sector expiration range                        |  
-| new_expiration    | null                                                  | New expiration time specified during creation                  |  
-| max_sectors       | 500                                                   | Maximum number of sectors per message                          |
-| messages          | null                                                  | Renewal messages on-chain, array                               |  
-| tolerance         | 20160                                                 | Renewal tolerance specified during creation                    |  
-| miner             | "t017387"                                             | Miner                                                          |  
-| status            | "failed"                                              | Status: `created`, `pending`, `failed`, `partfailed`,`success` |  
-| took              | 526.841994321                                         | Execution time in seconds                                      |  
-| confirmed_at      | null                                                  | Confirmation time of the message on-chain                      |  
-| dry_run           | true                                                  | Indicates if it is a test run                                  |  
-| dry_run_result    | ""                                                    | Test run result                                                |  
-| error             | "failed to get active sector set: RPCConnectionError" | Error message                                                  |  
-| total_sectors     | 1000                                                  | Number of sectors to be renewed                                |  
-| published_sectors | 500                                                   | Number of sectors actually published on-chain                  |
-| succeeded_sectors | 0                                                     | Number of sectors successfully renewed                         |
-| created_at        | "2024-05-11T13:39:40.74831759+08:00"                  | Creation time                                                  |  
-| updated_at        | "2024-05-11T13:40:16.237069667+08:00"                 | Update time                                                    |  
+| Parameter           | Value                                                 | Description                                                                                                                                                                       |  
+|---------------------|-------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|  
+| id                  | 11                                                    | Request ID                                                                                                                                                                        |  
+| extension           | 21000                                                 | Extension height specified during creation                                                                                                                                        |  
+| from                | "2024-05-12T07:34:47Z"                                | Start time of the sector expiration range                                                                                                                                         |  
+| to                  | "2024-05-13T07:34:47Z"                                | End time of the sector expiration range                                                                                                                                           |  
+| new_expiration      | null                                                  | New expiration time specified during creation                                                                                                                                     |  
+| max_sectors         | 500                                                   | Maximum number of sectors per message                                                                                                                                             |
+| max_initial_pledges | 0                                                     | Maximum cumulative pledge value allowed for sectors to be extended. If the cumulative pledge exceeds this value, the remaining sectors will not be extended. Default is no limit. | 
+| messages            | null                                                  | Renewal messages on-chain, array                                                                                                                                                  |  
+| tolerance           | 20160                                                 | Renewal tolerance specified during creation                                                                                                                                       |  
+| miner               | "t017387"                                             | Miner                                                                                                                                                                             |  
+| status              | "failed"                                              | Status: `created`, `pending`, `failed`, `partfailed`,`success`                                                                                                                    |  
+| took                | 526.841994321                                         | Execution time in seconds                                                                                                                                                         |  
+| confirmed_at        | null                                                  | Confirmation time of the message on-chain                                                                                                                                         |  
+| dry_run             | true                                                  | Indicates if it is a test run                                                                                                                                                     |  
+| dry_run_result      | ""                                                    | Test run result                                                                                                                                                                   |  
+| error               | "failed to get active sector set: RPCConnectionError" | Error message                                                                                                                                                                     |  
+| total_sectors       | 1000                                                  | Number of sectors to be renewed                                                                                                                                                   |  
+| published_sectors   | 500                                                   | Number of sectors actually published on-chain                                                                                                                                     |
+| succeeded_sectors   | 0                                                     | Number of sectors successfully renewed                                                                                                                                            |
+| created_at          | "2024-05-11T13:39:40.74831759+08:00"                  | Creation time                                                                                                                                                                     |  
+| updated_at          | "2024-05-11T13:40:16.237069667+08:00"                 | Update time                                                                                                                                                                       |  
 
 #### Response Example
 ```json
@@ -141,8 +143,9 @@ POST /requests
     "dry_run_result": "", 
     "error": "failed to get active sector set: RPCConnectionError", 
     "extension": 21000, 
-    "tolerance": 20160, 
+    "tolerance": 20160,
     "max_sectors": 500,
+    "max_initial_pledges": 0,
     "from": "2024-05-12T07:34:47Z", 
     "id": 11, 
     "messages": null, 
@@ -184,6 +187,7 @@ The response structure is the same as the creation response.
     "miner": "f017387",
     "new_expiration": null,
     "max_sectors": 500,
+    "max_initial_pledges": 0,
     "status": "pending",
     "to": "2024-05-14T15:18:47+08:00",
     "total_sectors": 1000,
