@@ -28,13 +28,13 @@ export FULLNODE_API_INFO="lotus api info"  # 需要 'sign' 权限
 ```shell
 ./extend run
 
-OPTIONS:  
- --listen value   Specify the address to listen on (default: "127.0.0.1:8000")
- --db value       Specify the database file to use (default: "extend.db") 
- --secret value   Specify the secret to use for API authentication; if not set, no auth will be enabled 
- --max-wait value [Warning] Specify the maximum time to wait for messages on-chain; attempts replacement if exceeded. Use with caution (default: 0s)
- --debug          Enable debug logging (default: false) 
- --help, -h       Show help  
+OPTIONS:
+   --listen value    specify the address to listen on (default: "127.0.0.1:8000")
+   --db value        specify the database URL to use， support sqlite3, mysql, postgres, https://github.com/xo/dburl?tab=readme-ov-file#example-urls (default: "sqlite3:extend.db")
+   --secret value    specify the secret to use for API authentication, if not set, no auth will be enabled
+   --max-wait value  [Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing (default: 0s)
+   --debug           enable debug logging (default: false)
+   --help, -h        show help
 ```
 
 查看帮助:
