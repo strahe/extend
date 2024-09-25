@@ -26,27 +26,28 @@ const (
 
 // Request represents a request in the system.
 type Request struct {
-	ID               uint            `json:"id" gorm:"primarykey"`
-	Miner            Address         `gorm:"index" json:"miner"`
-	From             time.Time       `json:"from"`
-	To               time.Time       `json:"to"`
-	Extension        *abi.ChainEpoch `json:"extension"`
-	NewExpiration    *abi.ChainEpoch `json:"new_expiration"`
-	Tolerance        abi.ChainEpoch  `json:"tolerance"`
-	MaxSectors       int             `json:"max_sectors"`
-	Status           RequestStatus   `gorm:"index" json:"status"`
-	Messages         []*Message      `json:"messages"`
-	TotalSectors     int             `json:"total_sectors"`
-	PublishedSectors int             `json:"published_sectors"`
-	SucceededSectors int             `json:"succeeded_sectors"`
-	Error            string          `json:"error"`
-	Took             float64         `json:"took"` // Time in seconds
-	ConfirmedAt      *time.Time      `json:"confirmed_at"`
-	DryRun           bool            `json:"dry_run"`
-	DryRunResult     string          `json:"dry_run_result"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	DeletedAt        gorm.DeletedAt  `gorm:"index" json:"-"`
+	ID                uint            `json:"id" gorm:"primarykey"`
+	Miner             Address         `gorm:"index" json:"miner"`
+	From              time.Time       `json:"from"`
+	To                time.Time       `json:"to"`
+	Extension         *abi.ChainEpoch `json:"extension"`
+	NewExpiration     *abi.ChainEpoch `json:"new_expiration"`
+	Tolerance         abi.ChainEpoch  `json:"tolerance"`
+	MaxSectors        int             `json:"max_sectors"`
+	MaxInitialPledges int             `json:"max_initial_pledges"`
+	Status            RequestStatus   `gorm:"index" json:"status"`
+	Messages          []*Message      `json:"messages"`
+	TotalSectors      int             `json:"total_sectors"`
+	PublishedSectors  int             `json:"published_sectors"`
+	SucceededSectors  int             `json:"succeeded_sectors"`
+	Error             string          `json:"error"`
+	Took              float64         `json:"took"` // Time in seconds
+	ConfirmedAt       *time.Time      `json:"confirmed_at"`
+	DryRun            bool            `json:"dry_run"`
+	DryRunResult      string          `json:"dry_run_result"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt  `gorm:"index" json:"-"`
 }
 
 func (r *Request) MessageCids() []string {

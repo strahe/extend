@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/lotus/api"
@@ -41,14 +43,15 @@ func newImplAPI(srv *Service) *implAPI {
 }
 
 type createRequestArgs struct {
-	Miner         address.Address `json:"miner"`          // miner address
-	From          time.Time       `json:"from"`           // expiration from
-	To            time.Time       `json:"to"`             //  expiration to
-	Extension     *abi.ChainEpoch `json:"extension"`      // extension to set
-	NewExpiration *abi.ChainEpoch `json:"new_expiration"` // new expiration to set
-	Tolerance     *abi.ChainEpoch `json:"tolerance"`      // tolerance for expiration
-	MaxSectors    *int            `json:"max_sectors"`    // max sectors to include in a single message
-	DryRun        bool            `json:"dry_run"`
+	Miner             address.Address `json:"miner"`               // miner address
+	From              time.Time       `json:"from"`                // expiration from
+	To                time.Time       `json:"to"`                  //  expiration to
+	Extension         *abi.ChainEpoch `json:"extension"`           // extension to set
+	NewExpiration     *abi.ChainEpoch `json:"new_expiration"`      // new expiration to set
+	Tolerance         *abi.ChainEpoch `json:"tolerance"`           // tolerance for expiration
+	MaxSectors        *int            `json:"max_sectors"`         // max sectors to include in a single message
+	MaxInitialPledges *int            `json:"max_initial_pledges"` // max initial pledges to extend
+	DryRun            bool            `json:"dry_run"`
 }
 
 func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +91,7 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req, err := a.srv.createRequest(r.Context(), args.Miner, args.From, args.To,
-		args.Extension, args.NewExpiration, args.Tolerance, maxSectors, args.DryRun)
+		args.Extension, args.NewExpiration, args.Tolerance, maxSectors, lo.FromPtr(args.MaxInitialPledges), args.DryRun)
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return

@@ -200,9 +200,10 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 	toEpoch := TimestampToEpoch(request.To)
 
 	start := time.Now()
+
 	result, terr := s.extend(ctx, request.Miner.Address, fromEpoch, toEpoch,
 		request.Extension, request.NewExpiration, request.Tolerance,
-		request.MaxSectors, request.DryRun, sLog)
+		request.MaxSectors, abi.TokenAmount(types.MustParseFIL(fmt.Sprintf("%d", request.MaxInitialPledges))), request.DryRun, sLog)
 
 	if terr != nil {
 		request.Error = terr.Error()
@@ -246,7 +247,7 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 }
 
 func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time,
-	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors int, dryRun bool) (*Request, error) {
+	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors int, maxInitialPledges int, dryRun bool) (*Request, error) {
 	if extension == nil && newExpiration == nil {
 		return nil, fmt.Errorf("either extension or new_expiration must be set")
 	}
@@ -285,15 +286,16 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 	}
 
 	request := &Request{
-		Miner:         Address{minerAddr},
-		From:          from,
-		To:            to,
-		Extension:     extension,
-		NewExpiration: newExpiration,
-		Tolerance:     tol,
-		Status:        RequestStatusCreated,
-		MaxSectors:    maxSectors,
-		DryRun:        dryRun,
+		Miner:             Address{minerAddr},
+		From:              from,
+		To:                to,
+		Extension:         extension,
+		NewExpiration:     newExpiration,
+		Tolerance:         tol,
+		Status:            RequestStatusCreated,
+		MaxSectors:        maxSectors,
+		MaxInitialPledges: maxInitialPledges,
+		DryRun:            dryRun,
 	}
 
 	return request, s.db.Create(request).Error
@@ -312,7 +314,7 @@ func (s *Service) getRequest(_ context.Context, id uint) (*Request, error) {
 
 func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi.ChainEpoch,
 	extension *abi.ChainEpoch, newExpiration *abi.ChainEpoch, tolerance abi.ChainEpoch,
-	maxSectors int, dryRun bool, sLog *zap.SugaredLogger) (*extendResult, error) {
+	maxSectors int, maxInitialPledge abi.TokenAmount, dryRun bool, sLog *zap.SugaredLogger) (*extendResult, error) {
 
 	if extension == nil && newExpiration == nil {
 		return nil, fmt.Errorf("either extension or new expiration must be set")
@@ -349,14 +351,28 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		return nil, fmt.Errorf("failed to get active set: %w", err)
 	}
 	sLog.Infow("got active set", "took", time.Since(time1), "sectors", len(activeSet))
-	var sectors []abi.SectorNumber
+
+	type sectorInfo struct {
+		sectorNumber  abi.SectorNumber
+		initialPledge abi.TokenAmount
+	}
+
+	var sectors []sectorInfo
 	activeSectorsInfo := make(map[abi.SectorNumber]*miner.SectorOnChainInfo, len(activeSet))
 	for _, info := range activeSet {
 		if info.Expiration >= from && info.Expiration <= to {
 			activeSectorsInfo[info.SectorNumber] = info
-			sectors = append(sectors, info.SectorNumber)
+			sectors = append(sectors, sectorInfo{
+				sectorNumber:  info.SectorNumber,
+				initialPledge: info.InitialPledge,
+			})
 		}
 	}
+
+	sort.Slice(sectors, func(i, j int) bool {
+		return sectors[i].initialPledge.LessThan(sectors[j].initialPledge)
+	})
+
 	sLog.Infof("found %d sectors to extend", len(sectors))
 	if len(sectors) == 0 {
 		sLog.Info("nothing to extend, break")
@@ -397,8 +413,18 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		return nil, fmt.Errorf("failed to get max extension: %w", err)
 	}
 
+	totalPledge := abi.NewTokenAmount(0)
 	extensions := map[miner.SectorLocation]map[abi.ChainEpoch][]abi.SectorNumber{}
-	for _, si := range activeSectorsInfo {
+	for _, sc := range sectors {
+		ntPledge := big.Add(totalPledge, sc.initialPledge)
+		if !maxInitialPledge.NilOrZero() && ntPledge.GreaterThan(maxInitialPledge) {
+			// We have reached the max initial pledge
+			sLog.Debugf("total pledge %s exceeds max initial pledge %s", types.FIL(ntPledge), types.FIL(maxInitialPledge))
+			continue
+		}
+		totalPledge = ntPledge
+		si := activeSectorsInfo[sc.sectorNumber]
+
 		var newExp abi.ChainEpoch
 		if extension != nil {
 			newExp = si.Expiration + *extension
@@ -590,7 +616,7 @@ loopParams:
 		messages = append(messages, msg)
 	}
 	if stotal != len(sectors) {
-		sLog.Warnw("not all sectors are build to extend", "total", len(sectors), "extended", stotal)
+		sLog.Warnw("not all sectors are build to extend", "total", len(sectors), "extended", stotal, "maxInitialPledge", types.FIL(maxInitialPledge).String())
 	} else {
 		sLog.Infof("all sectors are build to extend: %d", stotal)
 	}
@@ -1054,6 +1080,7 @@ func warpActiveSectors(ctx context.Context, api API, addr address.Address, cache
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active sector set: %w", err)
 	}
+
 	defer func() {
 		if cache {
 			if err := activeSetCacheToFile(addr, activeSet); err != nil {

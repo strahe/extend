@@ -28,13 +28,13 @@ export FULLNODE_API_INFO="lotus api info"  # 需要 'sign' 权限
 ```shell
 ./extend run
 
-OPTIONS:  
- --listen value   Specify the address to listen on (default: "127.0.0.1:8000")
- --db value       Specify the database file to use (default: "extend.db") 
- --secret value   Specify the secret to use for API authentication; if not set, no auth will be enabled 
- --max-wait value [Warning] Specify the maximum time to wait for messages on-chain; attempts replacement if exceeded. Use with caution (default: 0s)
- --debug          Enable debug logging (default: false) 
- --help, -h       Show help  
+OPTIONS:
+   --listen value    specify the address to listen on (default: "127.0.0.1:8000")
+   --db value        specify the database URL to use， support sqlite3, mysql, postgres, https://github.com/xo/dburl?tab=readme-ov-file#example-urls (default: "sqlite3:extend.db")
+   --secret value    specify the secret to use for API authentication, if not set, no auth will be enabled
+   --max-wait value  [Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing (default: 0s)
+   --debug           enable debug logging (default: false)
+   --help, -h        show help
 ```
 
 查看帮助:
@@ -83,15 +83,17 @@ POST /requests
 
 #### 请求参数
 
-| 参数名            | 值                         | 是否必须 | 说明                                                                                       |  
-|----------------|---------------------------|------|------------------------------------------------------------------------------------------|  
-| miner          | f01234                    | 是    | 节点名字                                                                                     |  
-| from           | 2024-05-12T07:34:47+00:00 | 是    | sector到期范围的开始时间,RFC3339格式，表明续期这个范围的sector                                                |  
-| to             | 2024-05-13T07:34:47+00:00 | 是    | sector到期的结束时间,RFC3339格式，表明续期这个范围的sector                                                  |  
-| extension      | 20160                     | 否    | 续期的Epoch数量，即在原有效期的基础上追加对应的高度                                                             |  
-| new_expiration | 3212223                   | 否    | 不管之前的有效期是多少，统一续期到指定的高度，如果设置了这个值，extension将被忽略                                            |  
-| tolerance      | 20160，7天，默认值              | 否    | 续期公差，精度，将到期时间相近的sector聚合成相同的到期时间，减少消息大小，降低gas, 且最低续期时间不能低于这个值， 使用new_expiration时，这个值会被忽略 |
-| max_sectors    | 500, 默认值                  | 否    | 单条消息允许包含的最大sector数量，最大25000                                                              |
+| 参数名                 | 值                         | 是否必须 | 说明                                                                                       |  
+|---------------------|---------------------------|------|------------------------------------------------------------------------------------------|  
+| miner               | f01234                    | 是    | 节点名字                                                                                     |  
+| from                | 2024-05-12T07:34:47+00:00 | 是    | sector到期范围的开始时间,RFC3339格式，表明续期这个范围的sector                                                |  
+| to                  | 2024-05-13T07:34:47+00:00 | 是    | sector到期的结束时间,RFC3339格式，表明续期这个范围的sector                                                  |  
+| extension           | 20160                     | 否    | 续期的Epoch数量，即在原有效期的基础上追加对应的高度                                                             |  
+| new_expiration      | 3212223                   | 否    | 不管之前的有效期是多少，统一续期到指定的高度，如果设置了这个值，extension将被忽略                                            |  
+| tolerance           | 20160，7天，默认值              | 否    | 续期公差，精度，将到期时间相近的sector聚合成相同的到期时间，减少消息大小，降低gas, 且最低续期时间不能低于这个值， 使用new_expiration时，这个值会被忽略 |
+| max_sectors         | 500, 默认值                  | 否    | 单条消息允许包含的最大sector数量，最大25000                                                              |
+| max_initial_pledges | 0, 默认值                    | 否    | 续期的扇区中，累计允许的最大质押值，如果质押币累计超过设置的值，其余的sector将不会被续期，默认不限制                                    |
+
 | dry_run        | false，默认                  | 否    | 是否是测试，如果是测试，不会真正执行续期操作，只会做一些检查                                                           |  
 
 #### 请求示例
@@ -109,28 +111,29 @@ POST /requests
 ```  
 
 #### 返回参数
-| 参数名               | 值                                                     | 说明                                                     |  
-|-------------------|-------------------------------------------------------|--------------------------------------------------------|  
-| id                | 11                                                    | 请求ID                                                   |  
-| extension         | 21000                                                 | 续期追加的高度，创建时指定的参数                                       |  
-| from              | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始时间，创建时指定的参数                               |  
-| to                | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                               |  
-| new_expiration    | null                                                  | 新的过期时间，创建时指定的参数                                        |  
-| max_sectors       | 500                                                   | 单条消息允许包含的最大sector数量，创建时指定的参数                           |
-| messages          | null                                                  | 续期上链的消息，array                                          |  
-| tolerance         | 20160                                                 | 续期公差，创建时指定的参数                                          |
-| miner             | "t017387"                                             | 矿工                                                     |  
-| status            | "failed"                                              | 状态，`created`,`pending`,`failed`,`partfailed`,`success` |  
-| took              | 526.841994321                                         | 续期执行耗时,单位s                                             |  
-| confirmed_at      | null                                                  | 消息上链的确认时间                                              |  
-| dry_run           | true                                                  | 是否为测试运行                                                |  
-| dry_run_result    | ""                                                    | 测试运行结果                                                 |  
-| error             | "failed to get active sector set: RPCConnectionError" | 错误信息                                                   |  
-| total_sectors     | 1000                                                  | 续期的sector数量                                            |
-| published_sectors | 500                                                   | 实际上链的sector数量，注：上链并不一定成功                               |
-| succeeded_sectors | 0                                                     | 成功续期的sector数量                                          |
-| created_at        | "2024-05-11T13:39:40.74831759+08:00"                  | 创建时间                                                   |  
-| updated_at        | "2024-05-11T13:40:16.237069667+08:00"                 | 更新时间                                                   |  
+| 参数名                 | 值                                                     | 说明                                                     |  
+|---------------------|-------------------------------------------------------|--------------------------------------------------------|  
+| id                  | 11                                                    | 请求ID                                                   |  
+| extension           | 21000                                                 | 续期追加的高度，创建时指定的参数                                       |  
+| from                | "2024-05-12T07:34:47Z"                                | 筛选过期sector的开始时间，创建时指定的参数                               |  
+| to                  | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                               |  
+| new_expiration      | null                                                  | 新的过期时间，创建时指定的参数                                        |  
+| max_sectors         | 500                                                   | 单条消息允许包含的最大sector数量，创建时指定的参数                           |
+| max_initial_pledges | 0                                                     | 续期的扇区中，累计允许的最大质押值，如果质押币累计超过设置的值，其余的sector将不会被续期，默认不限制  |
+| messages            | null                                                  | 续期上链的消息，array                                          |  
+| tolerance           | 20160                                                 | 续期公差，创建时指定的参数                                          |
+| miner               | "t017387"                                             | 矿工                                                     |  
+| status              | "failed"                                              | 状态，`created`,`pending`,`failed`,`partfailed`,`success` |  
+| took                | 526.841994321                                         | 续期执行耗时,单位s                                             |  
+| confirmed_at        | null                                                  | 消息上链的确认时间                                              |  
+| dry_run             | true                                                  | 是否为测试运行                                                |  
+| dry_run_result      | ""                                                    | 测试运行结果                                                 |  
+| error               | "failed to get active sector set: RPCConnectionError" | 错误信息                                                   |  
+| total_sectors       | 1000                                                  | 续期的sector数量                                            |
+| published_sectors   | 500                                                   | 实际上链的sector数量，注：上链并不一定成功                               |
+| succeeded_sectors   | 0                                                     | 成功续期的sector数量                                          |
+| created_at          | "2024-05-11T13:39:40.74831759+08:00"                  | 创建时间                                                   |  
+| updated_at          | "2024-05-11T13:40:16.237069667+08:00"                 | 更新时间                                                   |  
 
 #### 返回示例
 ```json  
@@ -144,6 +147,7 @@ POST /requests
     "extension": 21000, 
     "tolerance": 20160, 
     "max_sectors": 500,
+    "max_initial_pledges": 0,
     "from": "2024-05-12T07:34:47Z", 
     "id": 11, 
     "messages": null, 
@@ -184,6 +188,7 @@ GET /requests/{:id}
     "miner": "f017387",
     "new_expiration": null,
     "max_sectors": 500,
+    "max_initial_pledges": 0,
     "status": "pending",
     "to": "2024-05-14T15:18:47+08:00",
     "total_sectors": 1000,
