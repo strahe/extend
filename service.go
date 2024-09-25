@@ -419,7 +419,7 @@ func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi
 		ntPledge := big.Add(totalPledge, sc.initialPledge)
 		if !maxInitialPledge.NilOrZero() && ntPledge.GreaterThan(maxInitialPledge) {
 			// We have reached the max initial pledge
-			sLog.Infof("total pledge %s exceeds max initial pledge %s", ntPledge, maxInitialPledge)
+			sLog.Debugf("total pledge %s exceeds max initial pledge %s", types.FIL(ntPledge), types.FIL(maxInitialPledge))
 			continue
 		}
 		totalPledge = ntPledge
