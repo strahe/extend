@@ -203,7 +203,7 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 
 	result, terr := s.extend(ctx, request.Miner.Address, fromEpoch, toEpoch,
 		request.Extension, request.NewExpiration, request.Tolerance,
-		request.MaxSectors, abi.TokenAmount(types.MustParseFIL(fmt.Sprintf("%d", request.MaxInitialPledges))), request.DryRun, sLog)
+		request.MaxSectors, abi.TokenAmount(types.MustParseFIL(fmt.Sprintf("%f", request.MaxInitialPledges))), request.DryRun, sLog)
 
 	if terr != nil {
 		request.Error = terr.Error()
@@ -247,7 +247,7 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 }
 
 func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time,
-	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors int, maxInitialPledges int, dryRun bool) (*Request, error) {
+	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors int, maxInitialPledges float64, dryRun bool) (*Request, error) {
 	if extension == nil && newExpiration == nil {
 		return nil, fmt.Errorf("either extension or new_expiration must be set")
 	}

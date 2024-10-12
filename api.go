@@ -50,7 +50,7 @@ type createRequestArgs struct {
 	NewExpiration     *abi.ChainEpoch `json:"new_expiration"`      // new expiration to set
 	Tolerance         *abi.ChainEpoch `json:"tolerance"`           // tolerance for expiration
 	MaxSectors        *int            `json:"max_sectors"`         // max sectors to include in a single message
-	MaxInitialPledges *int            `json:"max_initial_pledges"` // max initial pledges to extend
+	MaxInitialPledges *float64        `json:"max_initial_pledges"` // max initial pledges to extend
 	DryRun            bool            `json:"dry_run"`
 }
 

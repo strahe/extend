@@ -34,7 +34,7 @@ type Request struct {
 	NewExpiration     *abi.ChainEpoch `json:"new_expiration"`
 	Tolerance         abi.ChainEpoch  `json:"tolerance"`
 	MaxSectors        int             `json:"max_sectors"`
-	MaxInitialPledges int             `json:"max_initial_pledges"`
+	MaxInitialPledges float64         `json:"max_initial_pledges"`
 	Status            RequestStatus   `gorm:"index" json:"status"`
 	Messages          []*Message      `json:"messages"`
 	TotalSectors      int             `json:"total_sectors"`
