@@ -1,7 +1,7 @@
 unexport GOFLAGS
 
 GOFLAGS=-ldflags="-s -w"
-GO_BUILD_IMAGE?=golang:1.22.3
+GO_BUILD_IMAGE?=golang:1.23.2
 VERSION?=$(shell git describe --always --tag --dirty)
 docker_sanitized_version=$(shell echo ${VERSION} | sed 's:/:-:g')
 IMAGE_NAME?=gh-efforts/extend
