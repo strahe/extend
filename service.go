@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/config"
+	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
@@ -60,6 +61,11 @@ func (w *watchMessage) Cancel() {
 	close(w.cancelCh)
 }
 
+type speedupMessage struct {
+	msg *Message
+	mss *api.MessageSendSpec
+}
+
 type Service struct {
 	api              API
 	adtStore         adt.Store
@@ -67,6 +73,7 @@ type Service struct {
 	maxWait          time.Duration
 	wg               sync.WaitGroup
 	watchingMessages *SafeMap[uint, *watchMessage]
+	speedupMessages  chan *speedupMessage
 	shutdownFunc     context.CancelFunc
 }
 
@@ -82,14 +89,16 @@ func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration
 		adtStore:         adtStore,
 		watchingMessages: NewSafeMap[uint, *watchMessage](),
 		maxWait:          maxWait,
+		speedupMessages:  make(chan *speedupMessage),
 		shutdownFunc: func() {
 			cancel()
 		},
 	}
-	s.wg.Add(3)
+	s.wg.Add(4)
 	go s.runProcessor(ctx)
 	go s.runMessageChecker(ctx)
 	go s.runPendingChecker(ctx)
+	go s.runSpeedupWorker(ctx)
 	return s
 }
 
@@ -611,6 +620,7 @@ loopParams:
 			Cid:        CID{smsg.Cid()},
 			Extensions: exts,
 			Sectors:    scount,
+			Nonce:      smsg.Message.Nonce,
 		}
 		s.db.Create(msg)
 		messages = append(messages, msg)
@@ -703,7 +713,7 @@ func buildParams(l miner.SectorLocation, newExp abi.ChainEpoch, numbers []abi.Se
 	return &e2, cannotExtendSectors, sectorsInDecl, nil
 }
 
-func (s *Service) speedupRequest(ctx context.Context, id uint, mss *api.MessageSendSpec) error {
+func (s *Service) speedupRequest(id uint, mss *api.MessageSendSpec) error {
 	var request Request
 	if err := s.db.Preload(clause.Associations).First(&request, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -715,16 +725,47 @@ func (s *Service) speedupRequest(ctx context.Context, id uint, mss *api.MessageS
 		return fmt.Errorf("request is not pending")
 	}
 
-	for _, msg := range request.Messages {
-		if msg.OnChain {
-			continue
+	sort.Slice(request.Messages, func(i, j int) bool {
+		return request.Messages[i].Nonce < request.Messages[j].Nonce
+	})
+
+	go func() {
+		for _, msg := range request.Messages {
+			if msg.OnChain {
+				continue
+			}
+			s.speedupMessages <- &speedupMessage{
+				msg: msg,
+				mss: mss,
+			}
 		}
-		// todo: need order by nonce?
-		if err := s.replaceMessage(ctx, msg.ID, mss); err != nil {
-			return fmt.Errorf("failed to replace message: %w", err)
+	}()
+	return nil
+}
+
+func (s *Service) runSpeedupWorker(ctx context.Context) {
+	defer s.wg.Done()
+	log.Info("starting speedup worker")
+
+	sem := make(chan struct{}, 10)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("context done, stopping speedup worker")
+			return
+		case sm := <-s.speedupMessages:
+			sem <- struct{}{}
+			go func(sm *speedupMessage) {
+				defer func() {
+					<-sem
+				}()
+				if err := s.replaceMessageAndWait(ctx, sm.msg.ID, sm.mss); err != nil {
+					log.Errorf("failed to replace message: %s", err)
+				}
+			}(sm)
 		}
 	}
-	return nil
 }
 
 func (s *Service) checkMessage(ctx context.Context, request *Request) error {
@@ -813,7 +854,7 @@ func (s *Service) watchMessage(ctx context.Context, id uint) {
 	errorChan := make(chan error, 1)
 
 	go func() {
-		receipt, err := s.api.StateWaitMsg(ctx, msg.Cid.Cid, 2*build.MessageConfidence, api.LookbackNoLimit, true)
+		receipt, err := s.api.StateWaitMsg(ctx, msg.Cid.Cid, build.MessageConfidence, api.LookbackNoLimit, true)
 		if err != nil {
 			errorChan <- err
 			return
@@ -872,7 +913,7 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 					MaxFee: abi.TokenAmount(maxFee),
 				}
 				for _, id := range replaceMessages {
-					if err := s.replaceMessage(ctx, id, mss); err != nil {
+					if _, err := s.replaceMessage(ctx, id, mss); err != nil {
 						log.Errorf("failed to replace message: %s", err)
 					}
 				}
@@ -881,13 +922,29 @@ func (s *Service) runPendingChecker(ctx context.Context) {
 	}
 }
 
-func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageSendSpec) error {
+func (s *Service) replaceMessageAndWait(ctx context.Context, id uint, mss *api.MessageSendSpec) error {
+	nid, err := s.replaceMessage(ctx, id, mss)
+	if err != nil {
+		return err
+	}
+
+	var msg Message
+	if err := s.db.Preload(clause.Associations).
+		Where("cid = ?", nid).
+		First(&msg).Error; err != nil {
+		return fmt.Errorf("failed to get message: %w", err)
+	}
+	s.watchMessage(ctx, msg.ID)
+	return nil
+}
+
+func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageSendSpec) (*cid.Cid, error) {
 	var m Message
 	if err := s.db.Preload(clause.Associations).First(&m, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("message id not found in db: %d", id)
+			return nil, fmt.Errorf("message id not found in db: %d", id)
 		}
-		return fmt.Errorf("failed to get request: %w", err)
+		return nil, fmt.Errorf("failed to get request: %w", err)
 	}
 	sLog := log.With("request", m.RequestID, "id", id, "cid", m.Cid.String())
 	sLog.Info("replacing message")
@@ -895,17 +952,17 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 	// get the message from the chain
 	cm, err := s.api.ChainGetMessage(ctx, m.Cid.Cid)
 	if err != nil {
-		return fmt.Errorf("could not find referenced message: %w", err)
+		return nil, fmt.Errorf("could not find referenced message: %w", err)
 	}
 
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
-		return fmt.Errorf("getting chain head: %w", err)
+		return nil, fmt.Errorf("getting chain head: %w", err)
 	}
 
 	pending, err := s.api.MpoolPending(ctx, ts.Key())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var found *types.SignedMessage
@@ -919,13 +976,13 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 	// If the message is not found in the mpool, skip it and continue with the next one
 	if found == nil {
 		sLog.Warn("message not found in mpool, skipping")
-		return nil
+		return nil, nil
 	}
 	msg := found.Message
 
 	cfg, err := s.api.MpoolGetConfig(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to lookup the message pool config: %w", err)
+		return nil, fmt.Errorf("failed to lookup the message pool config: %w", err)
 	}
 
 	defaultRBF := messagepool.ComputeRBF(msg.GasPremium, cfg.ReplaceByFeeRatio)
@@ -935,7 +992,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 	msg.GasPremium = abi.NewTokenAmount(0)
 	ret, err := s.api.GasEstimateMessageGas(ctx, &msg, mss, types.EmptyTSK)
 	if err != nil {
-		return fmt.Errorf("failed to estimate gas values: %w", err)
+		return nil, fmt.Errorf("failed to estimate gas values: %w", err)
 	}
 	msg.GasPremium = big.Max(ret.GasPremium, defaultRBF)
 	msg.GasFeeCap = big.Max(ret.GasFeeCap, msg.GasPremium)
@@ -948,10 +1005,10 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 
 	smsg, err := s.api.WalletSignMessage(ctx, msg.From, &msg)
 	if err != nil {
-		return fmt.Errorf("failed to sign message: %w", err)
+		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return lo.ToPtr(smsg.Cid()), s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Delete(&m).Error; err != nil {
 			return err
 		}
@@ -965,6 +1022,7 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 			Extensions: m.Extensions,
 			RequestID:  m.RequestID,
 			Sectors:    m.Sectors,
+			Nonce:      smsg.Message.Nonce,
 		}
 
 		if err := tx.Create(newMsg).Error; err != nil {
