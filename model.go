@@ -79,6 +79,7 @@ type Message struct {
 	ID         uint         `gorm:"primarykey"`
 	Cid        CID          `gorm:"index"` // The unique identifier of the message
 	Extensions []Extension2 // The list of extensions associated with the message
+	Nonce      uint64
 	RequestID  uint
 	OnChain    bool
 	ExitCode   exitcode.ExitCode
