@@ -154,7 +154,7 @@ func (a *implAPI) speedup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err = a.srv.speedupRequest(r.Context(), uint(id), mss)
+	err = a.srv.speedupRequest(uint(id), mss)
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return
