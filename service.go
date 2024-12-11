@@ -43,10 +43,11 @@ const (
 )
 
 type watchMessage struct {
-	id       uint
-	db       *gorm.DB
-	started  time.Time
-	cancelCh chan struct{}
+	id         uint
+	db         *gorm.DB
+	started    time.Time
+	cancelOnce sync.Once
+	cancelCh   chan struct{}
 }
 
 func newWatchMessage(db *gorm.DB, id uint) *watchMessage {
@@ -59,7 +60,9 @@ func newWatchMessage(db *gorm.DB, id uint) *watchMessage {
 }
 
 func (w *watchMessage) Cancel() {
-	close(w.cancelCh)
+	w.cancelOnce.Do(func() {
+		close(w.cancelCh)
+	})
 }
 
 func (w *watchMessage) Wait() {
