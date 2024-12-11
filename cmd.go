@@ -112,6 +112,11 @@ var runCmd = &cli.Command{
 			Name:  "max-wait",
 			Usage: "[Warning] specify the maximum time to wait for messages on chain, otherwise try to replace them, only use this if you know what you are doing",
 		},
+		&cli.Int64Flag{
+			Name:  "batch-speedup",
+			Usage: "specify the number of messages to speed up in a single batch",
+			Value: 10,
+		},
 		&cli.BoolFlag{
 			Name:  "debug",
 			Value: false,
@@ -172,7 +177,7 @@ var runCmd = &cli.Command{
 			authStatus = "enabled"
 		}
 
-		service := NewService(ctx, db, fullApi, cctx.Duration("max-wait"))
+		service := NewService(ctx, db, fullApi, cctx.Duration("max-wait"), cctx.Int64("batch-speedup"))
 		srv := &http.Server{
 			Handler: NewRouter(service, secret),
 			Addr:    cctx.String("listen"),

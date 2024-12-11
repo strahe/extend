@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/config"
+
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
@@ -43,15 +44,15 @@ const (
 
 type watchMessage struct {
 	id       uint
-	cid      CID
+	db       *gorm.DB
 	started  time.Time
 	cancelCh chan struct{}
 }
 
-func newWatchMessage(m *Message) *watchMessage {
+func newWatchMessage(db *gorm.DB, id uint) *watchMessage {
 	return &watchMessage{
-		id:       m.ID,
-		cid:      m.Cid,
+		db:       db,
+		id:       id,
 		started:  time.Now(),
 		cancelCh: make(chan struct{}),
 	}
@@ -59,6 +60,27 @@ func newWatchMessage(m *Message) *watchMessage {
 
 func (w *watchMessage) Cancel() {
 	close(w.cancelCh)
+}
+
+func (w *watchMessage) Wait() {
+	tk := time.NewTicker(5 * time.Second)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-w.cancelCh:
+			return
+		case <-tk.C:
+			var msg Message
+			if err := w.db.First(&msg, w.id).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return
+				} else {
+					log.Errorf("failed to get message: %s", err)
+				}
+			}
+		}
+	}
 }
 
 type speedupMessage struct {
@@ -74,10 +96,11 @@ type Service struct {
 	wg               sync.WaitGroup
 	watchingMessages *SafeMap[uint, *watchMessage]
 	speedupMessages  chan *speedupMessage
+	batchSpeedup     int64
 	shutdownFunc     context.CancelFunc
 }
 
-func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration) *Service {
+func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration, batchSpeedup int64) *Service {
 	tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(api), blockstore.NewMemory())
 	adtStore := adt.WrapStore(ctx, cbor.NewCborStore(tbs))
 
@@ -90,6 +113,7 @@ func NewService(ctx context.Context, db *gorm.DB, api API, maxWait time.Duration
 		watchingMessages: NewSafeMap[uint, *watchMessage](),
 		maxWait:          maxWait,
 		speedupMessages:  make(chan *speedupMessage),
+		batchSpeedup:     batchSpeedup,
 		shutdownFunc: func() {
 			cancel()
 		},
@@ -747,7 +771,7 @@ func (s *Service) runSpeedupWorker(ctx context.Context) {
 	defer s.wg.Done()
 	log.Info("starting speedup worker")
 
-	sem := make(chan struct{}, 10)
+	sem := make(chan struct{}, s.batchSpeedup)
 
 	for {
 		select {
@@ -844,9 +868,12 @@ func (s *Service) watchMessage(ctx context.Context, id uint) {
 		sLog.Warn("message is already watching")
 		return
 	}
-	wm := newWatchMessage(&msg)
+	wm := newWatchMessage(s.db, msg.ID)
 	s.watchingMessages.Set(msg.ID, wm)
-	defer s.watchingMessages.Delete(msg.ID)
+	defer func() {
+		wm.Cancel()
+		s.watchingMessages.Delete(msg.ID)
+	}()
 
 	sLog.Info("watching message")
 
@@ -934,7 +961,12 @@ func (s *Service) replaceMessageAndWait(ctx context.Context, id uint, mss *api.M
 		First(&msg).Error; err != nil {
 		return fmt.Errorf("failed to get message: %w", err)
 	}
-	s.watchMessage(ctx, msg.ID)
+
+	if wm, ok := s.watchingMessages.Get(msg.ID); ok {
+		wm.Wait()
+	} else {
+		s.watchMessage(ctx, msg.ID)
+	}
 	return nil
 }
 
