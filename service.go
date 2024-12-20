@@ -232,6 +232,18 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 		"miner", request.Miner.Address, "from", request.From, "to", request.To,
 		"extension", request.Extension, "new_expiration", request.NewExpiration,
 		"tolerance", request.Tolerance, "dry_run", request.DryRun)
+
+	if request.BasefeeLimit != nil {
+		cbf, err := s.getCurrentBasefee(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get current basefee: %w", err)
+		}
+		if cbf.GreaterThan(abi.NewTokenAmount(*request.BasefeeLimit)) {
+			sLog.Infof("current basefee %s is greater than limit %s, skip processing", cbf, types.FIL(abi.NewTokenAmount(*request.BasefeeLimit)))
+			return nil
+		}
+	}
+
 	fromEpoch := TimestampToEpoch(request.From)
 	toEpoch := TimestampToEpoch(request.To)
 
@@ -282,31 +294,35 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 	return nil
 }
 
-func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, from, to time.Time,
-	extension, newExpiration, tolerance *abi.ChainEpoch, maxSectors int, maxInitialPledges float64, dryRun bool) (*Request, error) {
-	if extension == nil && newExpiration == nil {
+func (s *Service) createRequest(ctx context.Context, args createRequestArgs) (*Request, error) {
+	if args.Extension == nil && args.NewExpiration == nil {
 		return nil, fmt.Errorf("either extension or new_expiration must be set")
 	}
-	if to.Unix() < from.Unix() {
+	if args.To.Unix() < args.From.Unix() {
 		return nil, fmt.Errorf("to time must be greater than from time")
 	}
 
-	if from.Before(time.Now().Add(time.Hour)) {
+	if args.From.Before(time.Now().Add(time.Hour)) {
 		return nil, fmt.Errorf("from time must be at least 1 hour in the future")
 	}
 
 	var tol = defaultTolerance
-	if tolerance != nil {
-		tol = *tolerance
+	if args.Tolerance != nil {
+		tol = *args.Tolerance
 	}
 
-	if extension != nil {
-		if (*extension) < tol {
-			return nil, fmt.Errorf("extension must be greater than %d epochs", tolerance)
+	if args.Extension != nil {
+		if (*args.Extension) < tol {
+			return nil, fmt.Errorf("extension must be greater than %d epochs", args.Tolerance)
 		}
 	}
-	if newExpiration != nil {
+	if args.NewExpiration != nil {
 		tol = 0
+	}
+
+	maxSectors := lo.FromPtrOr(args.MaxSectors, 500)
+	if maxSectors < 0 {
+		return nil, fmt.Errorf("max sectors must be greater than 0")
 	}
 
 	nv, err := s.api.StateNetworkVersion(ctx, types.EmptyTSK)
@@ -322,16 +338,17 @@ func (s *Service) createRequest(ctx context.Context, minerAddr address.Address, 
 	}
 
 	request := &Request{
-		Miner:             Address{minerAddr},
-		From:              from,
-		To:                to,
-		Extension:         extension,
-		NewExpiration:     newExpiration,
+		Miner:             Address{args.Miner},
+		From:              args.From,
+		To:                args.To,
+		Extension:         args.Extension,
+		NewExpiration:     args.NewExpiration,
 		Tolerance:         tol,
 		Status:            RequestStatusCreated,
 		MaxSectors:        maxSectors,
-		MaxInitialPledges: maxInitialPledges,
-		DryRun:            dryRun,
+		MaxInitialPledges: lo.FromPtr(args.MaxInitialPledges),
+		BasefeeLimit:      args.BasefeeLimit,
+		DryRun:            args.DryRun,
 	}
 
 	return request, s.db.Create(request).Error
@@ -1072,6 +1089,14 @@ func (s *Service) replaceMessage(ctx context.Context, id uint, mss *api.MessageS
 
 		return nil
 	})
+}
+
+func (s *Service) getCurrentBasefee(ctx context.Context) (abi.TokenAmount, error) {
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		return abi.NewTokenAmount(0), fmt.Errorf("getting chain head: %w", err)
+	}
+	return ts.MinTicketBlock().ParentBaseFee, nil
 }
 
 func SectorNumsToBitfield(sectors []abi.SectorNumber) bitfield.BitField {

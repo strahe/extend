@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/samber/lo"
-
 	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/lotus/api"
@@ -51,6 +49,7 @@ type createRequestArgs struct {
 	Tolerance         *abi.ChainEpoch `json:"tolerance"`           // tolerance for expiration
 	MaxSectors        *int            `json:"max_sectors"`         // max sectors to include in a single message
 	MaxInitialPledges *float64        `json:"max_initial_pledges"` // max initial pledges to extend
+	BasefeeLimit      *int64          `json:"basefee_limit"`       // basefee limit for extending messages, in attoFIL
 	DryRun            bool            `json:"dry_run"`
 }
 
@@ -79,19 +78,7 @@ func (a *implAPI) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var maxSectors int
-	if args.MaxSectors == nil {
-		maxSectors = 500 // default value
-	} else {
-		maxSectors = *args.MaxSectors
-	}
-	if maxSectors < 0 {
-		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("max_sectors must be greater than 0"))
-		return
-	}
-
-	req, err := a.srv.createRequest(r.Context(), args.Miner, args.From, args.To,
-		args.Extension, args.NewExpiration, args.Tolerance, maxSectors, lo.FromPtr(args.MaxInitialPledges), args.DryRun)
+	req, err := a.srv.createRequest(r.Context(), args)
 	if err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return
