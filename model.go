@@ -35,6 +35,7 @@ type Request struct {
 	Tolerance         abi.ChainEpoch  `json:"tolerance"`
 	MaxSectors        int             `json:"max_sectors"`
 	MaxInitialPledges float64         `json:"max_initial_pledges"`
+	BasefeeLimit      *int64          `json:"basefee_limit"`
 	Status            RequestStatus   `gorm:"index" json:"status"`
 	Messages          []*Message      `json:"messages"`
 	TotalSectors      int             `json:"total_sectors"`
@@ -71,6 +72,10 @@ func (r *Request) AfterFind(_ *gorm.DB) (err error) {
 		r.SucceededSectors = success
 	}
 	return nil
+}
+
+func (r *Request) Finished() bool {
+	return r.Status == RequestStatusSuccess || r.Status == RequestStatusFailed || r.Status == RequestStatusPartfailed
 }
 
 // Message represents a message in the system.

@@ -94,6 +94,7 @@ POST /requests
 | tolerance           | 20160, 7 days, default value | No       | Renewal tolerance for aggregation                                                                                                                                                 |  
 | max_sectors         | 500, default value           | No       | Maximum sectors per message, up to 25000                                                                                                                                          |
 | max_initial_pledges | 0, default value             | No       | Maximum cumulative pledge value allowed for sectors to be extended. If the cumulative pledge exceeds this value, the remaining sectors will not be extended. Default is no limit. |
+| basefee_limit       | null                         | No       | Only push messages when the network basefee is below this value, zero or null to remove the limit                                                                                 |
 | dry_run             | false, default               | No       | If true, performs a test run without actual renewal                                                                                                                               |  
 
 #### Request example
@@ -106,6 +107,7 @@ POST /requests
     "new_expiration": 3212223, 
     "tolerance": 20160, 
     "max_sectors": 500,
+    "basefee_limit": null,
     "dry_run": false
 }  
 ```
@@ -118,6 +120,7 @@ POST /requests
 | to                  | "2024-05-13T07:34:47Z"                                | End time of the sector expiration range                                                                                                                                           |  
 | new_expiration      | null                                                  | New expiration time specified during creation                                                                                                                                     |  
 | max_sectors         | 500                                                   | Maximum number of sectors per message                                                                                                                                             |
+| basefee_limit       | null                                                  | Only push messages when the network basefee is below this value                                                                                                                   |                                                                                                                                                          
 | max_initial_pledges | 0                                                     | Maximum cumulative pledge value allowed for sectors to be extended. If the cumulative pledge exceeds this value, the remaining sectors will not be extended. Default is no limit. | 
 | messages            | null                                                  | Renewal messages on-chain, array                                                                                                                                                  |  
 | tolerance           | 20160                                                 | Renewal tolerance specified during creation                                                                                                                                       |  
@@ -137,7 +140,8 @@ POST /requests
 #### Response Example
 ```json
 {  
-  "data": { 
+  "data": {
+    "basefee_limit": null,
     "confirmed_at": null, 
     "created_at": "2024-05-11T13:39:40.74831759+08:00", 
     "dry_run": true, 
@@ -174,6 +178,7 @@ The response structure is the same as the creation response.
 ```json
 {
   "data": {
+    "basefee_limit": null,
     "confirmed_at": null,
     "created_at": "2024-05-13T16:44:58.208723388+08:00",
     "dry_run": false,
@@ -227,6 +232,28 @@ POST /requests/{:id}/speedup
   "data": "success"
 }
 ```
+
+### Update Request
+Update a renewal request by sending a PATCH request to `/requests/{:id}`， Currently only support `basefee_limit`:
+```http request
+PATCH /requests/{:id}
+```
+
+> [!WARNING]
+> Only not started requests can be updated.
+
+#### Request Example
+> [!NOTE]
+> 0 or null to remove the limit
+
+ ```json
+ {
+  "basefee_limit": 0 
+}
+```
+
+#### Response Example
+Same as the creation response.
 
 ## Exceptions
 HTTP Status Codes:

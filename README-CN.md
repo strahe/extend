@@ -93,6 +93,7 @@ POST /requests
 | tolerance           | 20160，7天，默认值              | 否    | 续期公差，精度，将到期时间相近的sector聚合成相同的到期时间，减少消息大小，降低gas, 且最低续期时间不能低于这个值， 使用new_expiration时，这个值会被忽略 |
 | max_sectors         | 500, 默认值                  | 否    | 单条消息允许包含的最大sector数量，最大25000                                                              |
 | max_initial_pledges | 0, 默认值                    | 否    | 续期的扇区中，累计允许的最大质押值，如果质押币累计超过设置的值，其余的sector将不会被续期，默认不限制                                    |
+| basefee_limit       | null                      | No   | 只有当网络basefee低于这个值时才发送续期消息， 0 和 null 表示不限制                                                |
 | dry_run             | false，默认                  | 否    | 是否是测试，如果是测试，不会真正执行续期操作，只会做一些检查                                                           |  
 
 #### 请求示例
@@ -105,6 +106,7 @@ POST /requests
     "new_expiration": 3212223, 
     "tolerance": 20160, 
     "max_sectors": 500,
+    "basefee_limit": null,
     "dry_run": false
  }  
 ```  
@@ -118,6 +120,7 @@ POST /requests
 | to                  | "2024-05-13T07:34:47Z"                                | 筛选过期sector的结束时间，创建时指定的参数                               |  
 | new_expiration      | null                                                  | 新的过期时间，创建时指定的参数                                        |  
 | max_sectors         | 500                                                   | 单条消息允许包含的最大sector数量，创建时指定的参数                           |
+| basefee_limit       | null                                                  | 只有当网络basefee低于这个值时才发送续期消息                              |
 | max_initial_pledges | 0                                                     | 续期的扇区中，累计允许的最大质押值，如果质押币累计超过设置的值，其余的sector将不会被续期，默认不限制  |
 | messages            | null                                                  | 续期上链的消息，array                                          |  
 | tolerance           | 20160                                                 | 续期公差，创建时指定的参数                                          |
@@ -137,7 +140,8 @@ POST /requests
 #### 返回示例
 ```json  
 {  
-  "data": { 
+  "data": {
+    "basefee_limit": null,
     "confirmed_at": null, 
     "created_at": "2024-05-11T13:39:40.74831759+08:00", 
     "dry_run": true, 
@@ -173,6 +177,7 @@ GET /requests/{:id}
  ```json
 {
   "data": {
+    "basefee_limit": null,
     "confirmed_at": null,
     "created_at": "2024-05-13T16:44:58.208723388+08:00",
     "dry_run": false,
@@ -227,6 +232,26 @@ POST /requests/{:id}/speedup
   "data": "success"
 }
 ```
+
+### Update Request
+更新一个续期请求，只有未开始的请求才能更新， 目前只支持更新 `basefee_limit` 参数.
+
+```http request
+PATCH /requests/{:id}
+```
+
+#### Request Example
+> [!NOTE]
+> 0 和 null 表示不限制
+
+ ```json
+ {
+  "basefee_limit": 0 
+}
+```
+
+#### Response Example
+和创建请求的返回一致
 
 ### 使用限制
 
