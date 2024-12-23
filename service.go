@@ -233,7 +233,7 @@ func (s *Service) processRequest(ctx context.Context, request *Request) error {
 		"extension", request.Extension, "new_expiration", request.NewExpiration,
 		"tolerance", request.Tolerance, "dry_run", request.DryRun)
 
-	if request.BasefeeLimit != nil {
+	if request.BasefeeLimit != nil && *request.BasefeeLimit != 0 {
 		cbf, err := s.getCurrentBasefee(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get current basefee: %w", err)
@@ -363,6 +363,10 @@ func (s *Service) getRequest(_ context.Context, id uint) (*Request, error) {
 		return nil, fmt.Errorf("failed to get request: %w", err)
 	}
 	return &request, nil
+}
+
+func (s *Service) saveRequest(request *Request) error {
+	return s.db.Save(request).Error
 }
 
 func (s *Service) extend(ctx context.Context, addr address.Address, from, to abi.ChainEpoch,

@@ -24,6 +24,7 @@ func NewRouter(srv *Service, secret []byte) http.Handler {
 	impl := newImplAPI(srv)
 	r.HandleFunc("/requests", impl.create).Methods("POST")
 	r.HandleFunc("/requests/{id:[0-9]+}", impl.get).Methods("GET")
+	r.HandleFunc("/requests/{id:[0-9]+}", impl.update).Methods("PATCH")
 	r.HandleFunc("/requests/{id:[0-9]+}/speedup", impl.speedup).Methods("POST")
 	return r
 }
@@ -99,6 +100,46 @@ func (a *implAPI) get(w http.ResponseWriter, r *http.Request) {
 
 	req, err := a.srv.getRequest(r.Context(), uint(id))
 	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	warpResponse(w, http.StatusOK, req, nil)
+}
+
+type updateRequestArgs struct {
+	BasefeeLimit *int64 `json:"basefee_limit"` // basefee limit for extending messages, in attoFIL
+}
+
+func (a *implAPI) update(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("invalid id: %s", vars["id"]))
+		return
+	}
+
+	var args updateRequestArgs
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	if err := a.validate.Struct(args); err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+
+	req, err := a.srv.getRequest(r.Context(), uint(id))
+	if err != nil {
+		warpResponse(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	if req.Finished() {
+		warpResponse(w, http.StatusBadRequest, nil, fmt.Errorf("request is already finished"))
+		return
+	}
+
+	req.BasefeeLimit = args.BasefeeLimit
+	if err := a.srv.saveRequest(req); err != nil {
 		warpResponse(w, http.StatusBadRequest, nil, err)
 		return
 	}

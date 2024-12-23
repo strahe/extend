@@ -74,6 +74,10 @@ func (r *Request) AfterFind(_ *gorm.DB) (err error) {
 	return nil
 }
 
+func (r *Request) Finished() bool {
+	return r.Status == RequestStatusSuccess || r.Status == RequestStatusFailed || r.Status == RequestStatusPartfailed
+}
+
 // Message represents a message in the system.
 // It contains a unique identifier (MsgCid) and a list of Extensions.
 type Message struct {
