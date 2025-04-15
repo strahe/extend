@@ -1,6 +1,7 @@
 unexport GOFLAGS
 
-GOFLAGS=-ldflags="-s -w"
+ldflags=-s -w -X github.com/strahe/extend/version.CurrentCommit=$(shell git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+GOFLAGS+=-ldflags="$(ldflags)"
 GO_BUILD_IMAGE?=golang:1.24.2
 VERSION?=$(shell git describe --always --tag --dirty)
 docker_sanitized_version=$(shell echo ${VERSION} | sed 's:/:-:g')
