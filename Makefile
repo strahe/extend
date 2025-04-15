@@ -1,10 +1,11 @@
 unexport GOFLAGS
 
-GOFLAGS=-ldflags="-s -w"
-GO_BUILD_IMAGE?=golang:1.23.2
+ldflags=-s -w -X github.com/strahe/extend/version.CurrentCommit=$(shell git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+GOFLAGS+=-ldflags="$(ldflags)"
+GO_BUILD_IMAGE?=golang:1.24.2
 VERSION?=$(shell git describe --always --tag --dirty)
 docker_sanitized_version=$(shell echo ${VERSION} | sed 's:/:-:g')
-IMAGE_NAME?=gh-efforts/extend
+IMAGE_NAME?=strahe/extend
 
 extend: ffi-deps
 	go build $(GOFLAGS) -o extend ./
